@@ -254,34 +254,41 @@ class VideoConferenceServer:
                 return
             
             try:
-                # Convert all audio buffers to numpy arrays
-                audio_arrays = []
+                # Convert all audio buffers to numpy arrays with client mapping
+                audio_data_map = {}
                 for client_id, audio_data in self.audio_buffers.items():
                     # Convert bytes to int16 array
                     audio_array = np.frombuffer(audio_data, dtype=np.int16)
-                    audio_arrays.append(audio_array.astype(np.float32))
+                    audio_data_map[client_id] = audio_array.astype(np.float32)
                 
-                # Mix audio by averaging (prevents clipping)
-                if len(audio_arrays) > 0:
-                    # Ensure all arrays have the same length
-                    min_length = min(len(arr) for arr in audio_arrays)
-                    audio_arrays = [arr[:min_length] for arr in audio_arrays]
-                    
-                    # Average all audio streams
-                    mixed_audio = np.mean(audio_arrays, axis=0)
-                    
-                    # Convert back to int16
-                    mixed_audio = np.clip(mixed_audio, -32768, 32767).astype(np.int16)
-                    mixed_data = mixed_audio.tobytes()
-                    
-                    # Broadcast mixed audio to all clients
+                # Broadcast to each client (excluding their own audio to prevent loopback)
+                if len(audio_data_map) > 0:
                     with self.clients_lock:
-                        for client_id, client_info in self.clients.items():
+                        for target_client_id, client_info in self.clients.items():
                             if client_info.get('audio_address') is not None:
-                                try:
-                                    self.audio_socket.sendto(mixed_data, client_info['audio_address'])
-                                except:
-                                    pass  # Silently ignore send errors
+                                # Collect audio from all clients EXCEPT the target client
+                                audio_arrays = []
+                                for source_client_id, audio_array in audio_data_map.items():
+                                    if source_client_id != target_client_id:
+                                        audio_arrays.append(audio_array)
+                                
+                                # If there's audio to send to this client
+                                if len(audio_arrays) > 0:
+                                    # Ensure all arrays have the same length
+                                    min_length = min(len(arr) for arr in audio_arrays)
+                                    audio_arrays = [arr[:min_length] for arr in audio_arrays]
+                                    
+                                    # Average all audio streams
+                                    mixed_audio = np.mean(audio_arrays, axis=0)
+                                    
+                                    # Convert back to int16
+                                    mixed_audio = np.clip(mixed_audio, -32768, 32767).astype(np.int16)
+                                    mixed_data = mixed_audio.tobytes()
+                                    
+                                    try:
+                                        self.audio_socket.sendto(mixed_data, client_info['audio_address'])
+                                    except:
+                                        pass  # Silently ignore send errors
                 
             except Exception as e:
                 print(f"[{self.get_timestamp()}] Error mixing audio: {e}")

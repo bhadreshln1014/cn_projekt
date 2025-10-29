@@ -44,6 +44,8 @@ class VideoConferenceClient:
         self.audio_stream_output = None
         self.audio_capturing = False
         self.audio_playing = False
+        self.selected_input_device = None  # Will store device index
+        self.selected_output_device = None  # Will store device index
         
         # Video streams: {client_id: frame_data}
         self.video_streams = {}
@@ -112,6 +114,104 @@ class VideoConferenceClient:
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error connecting to server: {e}")
             return False
+    
+    def get_audio_devices(self):
+        """Get list of available audio devices"""
+        if self.audio is None:
+            return {'input': [], 'output': []}
+        
+        input_devices = []
+        output_devices = []
+        
+        try:
+            info = self.audio.get_host_api_info_by_index(0)
+            num_devices = info.get('deviceCount')
+            
+            for i in range(num_devices):
+                device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
+                device_name = device_info.get('name')
+                
+                # Check if device supports input (microphone)
+                if device_info.get('maxInputChannels') > 0:
+                    input_devices.append({
+                        'index': i,
+                        'name': device_name,
+                        'channels': device_info.get('maxInputChannels')
+                    })
+                
+                # Check if device supports output (speakers)
+                if device_info.get('maxOutputChannels') > 0:
+                    output_devices.append({
+                        'index': i,
+                        'name': device_name,
+                        'channels': device_info.get('maxOutputChannels')
+                    })
+        except Exception as e:
+            print(f"[{self.get_timestamp()}] Error getting audio devices: {e}")
+        
+        return {'input': input_devices, 'output': output_devices}
+    
+    def refresh_audio_devices(self):
+        """Refresh audio device lists in GUI dropdowns"""
+        devices = self.get_audio_devices()
+        
+        # Update input device dropdown
+        input_names = [d['name'] for d in devices['input']]
+        if hasattr(self, 'input_device_combo'):
+            self.input_device_combo['values'] = input_names
+            if len(input_names) > 0 and self.selected_input_device is None:
+                self.input_device_combo.current(0)
+                self.selected_input_device = devices['input'][0]['index']
+        
+        # Update output device dropdown
+        output_names = [d['name'] for d in devices['output']]
+        if hasattr(self, 'output_device_combo'):
+            self.output_device_combo['values'] = output_names
+            if len(output_names) > 0 and self.selected_output_device is None:
+                self.output_device_combo.current(0)
+                self.selected_output_device = devices['output'][0]['index']
+    
+    def on_input_device_changed(self, event=None):
+        """Handle input device selection change"""
+        if not hasattr(self, 'input_device_combo'):
+            return
+        
+        devices = self.get_audio_devices()
+        selected_name = self.input_device_combo.get()
+        
+        for device in devices['input']:
+            if device['name'] == selected_name:
+                old_device = self.selected_input_device
+                self.selected_input_device = device['index']
+                
+                # Restart audio capture if it was running
+                if self.audio_capturing and old_device != self.selected_input_device:
+                    self.stop_audio_capture()
+                    time.sleep(0.2)
+                    self.start_audio_capture()
+                    print(f"[{self.get_timestamp()}] Switched to input device: {device['name']}")
+                break
+    
+    def on_output_device_changed(self, event=None):
+        """Handle output device selection change"""
+        if not hasattr(self, 'output_device_combo'):
+            return
+        
+        devices = self.get_audio_devices()
+        selected_name = self.output_device_combo.get()
+        
+        for device in devices['output']:
+            if device['name'] == selected_name:
+                old_device = self.selected_output_device
+                self.selected_output_device = device['index']
+                
+                # Restart audio playback if it was running
+                if self.audio_playing and old_device != self.selected_output_device:
+                    self.stop_audio_playback()
+                    time.sleep(0.2)
+                    self.start_audio_playback()
+                    print(f"[{self.get_timestamp()}] Switched to output device: {device['name']}")
+                break
     
     def get_timestamp(self):
         """Get formatted timestamp"""
@@ -197,6 +297,7 @@ class VideoConferenceClient:
                 channels=AUDIO_CHANNELS,
                 rate=AUDIO_RATE,
                 input=True,
+                input_device_index=self.selected_input_device,
                 frames_per_buffer=AUDIO_CHUNK
             )
             
@@ -256,6 +357,7 @@ class VideoConferenceClient:
                 channels=AUDIO_CHANNELS,
                 rate=AUDIO_RATE,
                 output=True,
+                output_device_index=self.selected_output_device,
                 frames_per_buffer=AUDIO_CHUNK
             )
             
@@ -451,6 +553,34 @@ class VideoConferenceClient:
         layout_combo.pack(side=tk.LEFT, padx=5)
         layout_combo.bind("<<ComboboxSelected>>", self.change_layout)
         
+        # Audio device selectors
+        ttk.Label(controls_frame, text="Mic:").pack(side=tk.LEFT, padx=(15, 5))
+        self.input_device_combo = ttk.Combobox(
+            controls_frame,
+            state="readonly",
+            width=20
+        )
+        self.input_device_combo.pack(side=tk.LEFT, padx=5)
+        self.input_device_combo.bind("<<ComboboxSelected>>", self.on_input_device_changed)
+        
+        ttk.Label(controls_frame, text="Speaker:").pack(side=tk.LEFT, padx=(10, 5))
+        self.output_device_combo = ttk.Combobox(
+            controls_frame,
+            state="readonly",
+            width=20
+        )
+        self.output_device_combo.pack(side=tk.LEFT, padx=5)
+        self.output_device_combo.bind("<<ComboboxSelected>>", self.on_output_device_changed)
+        
+        # Refresh button for audio devices
+        refresh_btn = ttk.Button(
+            controls_frame,
+            text="🔄",
+            width=3,
+            command=self.refresh_audio_devices
+        )
+        refresh_btn.pack(side=tk.LEFT, padx=5)
+        
         self.user_count_label = ttk.Label(top_frame, text="Users: 0", font=("Arial", 10))
         self.user_count_label.pack(side=tk.RIGHT, padx=5)
         
@@ -460,6 +590,9 @@ class VideoConferenceClient:
         
         # Create initial video grid (will be dynamic)
         self.create_video_grid()
+        
+        # Initialize audio device lists
+        self.refresh_audio_devices()
         
         # Start GUI update loop
         self.update_gui()
