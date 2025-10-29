@@ -99,10 +99,11 @@ class VideoConferenceClient:
     def start_video_capture(self):
         """Start capturing video from webcam"""
         try:
-            self.camera = cv2.VideoCapture(0)
-            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, VIDEO_WIDTH)
-            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, VIDEO_HEIGHT)
-            self.camera.set(cv2.CAP_PROP_FPS, VIDEO_FPS)
+            if self.camera is None:
+                self.camera = cv2.VideoCapture(0)
+                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, VIDEO_WIDTH)
+                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, VIDEO_HEIGHT)
+                self.camera.set(cv2.CAP_PROP_FPS, VIDEO_FPS)
             
             if not self.camera.isOpened():
                 print(f"[{self.get_timestamp()}] Failed to open camera")
@@ -120,6 +121,11 @@ class VideoConferenceClient:
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error starting video capture: {e}")
             return False
+    
+    def stop_video_capture(self):
+        """Stop capturing video from webcam"""
+        self.capturing = False
+        print(f"[{self.get_timestamp()}] Video capture stopped")
     
     def capture_and_send(self):
         """Capture frames and send to server"""
@@ -252,7 +258,7 @@ class VideoConferenceClient:
         # Self video toggle
         self_video_check = ttk.Checkbutton(
             controls_frame, 
-            text="Show My Video",
+            text="Camera On",
             variable=self.show_self_video,
             command=self.toggle_self_video
         )
@@ -286,9 +292,13 @@ class VideoConferenceClient:
         return self.root
     
     def toggle_self_video(self):
-        """Toggle showing self video"""
-        # Force immediate GUI update
-        pass
+        """Toggle video capture on/off"""
+        if self.show_self_video.get():
+            # Turn video ON - start capturing and transmitting
+            self.start_video_capture()
+        else:
+            # Turn video OFF - stop capturing and transmitting
+            self.stop_video_capture()
     
     def change_layout(self, event=None):
         """Change video grid layout"""
@@ -373,20 +383,19 @@ class VideoConferenceClient:
             with self.streams_lock:
                 client_ids = list(self.video_streams.keys())
             
-            # Add self camera if capturing and checkbox is checked
+            # Build display streams from other clients only
             display_streams = {}
-            
-            # Self video (from camera) - only if toggle is enabled
-            show_self = self.show_self_video.get() if self.show_self_video else True
-            if show_self and self.capturing and self.camera is not None:
-                ret, frame = self.camera.read()
-                if ret:
-                    display_streams[self.client_id] = frame
             
             # Other clients' video
             with self.streams_lock:
                 for client_id, frame in self.video_streams.items():
                     display_streams[client_id] = frame
+            
+            # Self video (from camera) - only if capturing
+            if self.capturing and self.camera is not None:
+                ret, frame = self.camera.read()
+                if ret:
+                    display_streams[self.client_id] = frame
             
             # Calculate optimal grid size
             num_videos = len(display_streams)
