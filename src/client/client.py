@@ -38,6 +38,7 @@ class VideoConferenceClient:
         
         # Video streams: {client_id: frame_data}
         self.video_streams = {}
+        self.video_stream_timestamps = {}  # Track when we last received a frame
         self.streams_lock = threading.Lock()
         
         # User list
@@ -195,6 +196,19 @@ class VideoConferenceClient:
                             users = pickle.loads(bytes.fromhex(user_data))
                             with self.users_lock:
                                 self.users = {u['id']: u['username'] for u in users}
+                            
+                            # Clean up video streams for disconnected users
+                            with self.streams_lock:
+                                current_user_ids = set(self.users.keys())
+                                stream_client_ids = set(self.video_streams.keys())
+                                
+                                # Remove streams for users no longer in the session
+                                for client_id in list(stream_client_ids):
+                                    if client_id not in current_user_ids and client_id != self.client_id:
+                                        del self.video_streams[client_id]
+                                        if client_id in self.video_stream_timestamps:
+                                            del self.video_stream_timestamps[client_id]
+                                        print(f"[{self.get_timestamp()}] Removed video stream for disconnected user {client_id}")
                         except:
                             pass
                     
@@ -228,6 +242,7 @@ class VideoConferenceClient:
                 if frame is not None:
                     with self.streams_lock:
                         self.video_streams[client_id] = frame
+                        self.video_stream_timestamps[client_id] = time.time()
                 
             except Exception as e:
                 if self.connected:
@@ -391,12 +406,25 @@ class VideoConferenceClient:
             
             # Update video streams
             with self.streams_lock:
+                # Clean up stale video streams (no frame received in last 2 seconds)
+                current_time = time.time()
+                stale_clients = []
+                for client_id, last_update in self.video_stream_timestamps.items():
+                    if current_time - last_update > 2.0:  # 2 second timeout
+                        stale_clients.append(client_id)
+                
+                for client_id in stale_clients:
+                    if client_id in self.video_streams:
+                        del self.video_streams[client_id]
+                    del self.video_stream_timestamps[client_id]
+                    print(f"[{self.get_timestamp()}] Removed stale video stream for user {client_id}")
+                
                 client_ids = list(self.video_streams.keys())
             
             # Build display streams from other clients only
             display_streams = {}
             
-            # Other clients' video
+            # Other clients' video (only active streams)
             with self.streams_lock:
                 for client_id, frame in self.video_streams.items():
                     display_streams[client_id] = frame
@@ -449,12 +477,22 @@ class VideoConferenceClient:
                     label_info['video'].config(image=imgtk, text="")
                     label_info['video'].image = imgtk
                     label_info['client_id'] = client_id
+                    
+                    # Make container visible
+                    label_info['container'].grid()
                     display_index += 1
                 else:
-                    # Clear unused slots
-                    label_info['username'].config(text="")
-                    label_info['video'].config(image="", text="No Video", bg="black")
-                    label_info['video'].image = None
+                    # Hide unused slots in auto mode, show "No Video" in manual mode
+                    if self.current_layout == "auto":
+                        # Hide the container completely in auto mode
+                        label_info['container'].grid_remove()
+                    else:
+                        # Show "No Video" placeholder in manual mode
+                        label_info['username'].config(text="")
+                        label_info['video'].config(image="", text="No Video", bg="black")
+                        label_info['video'].image = None
+                        label_info['container'].grid()
+                    
                     label_info['client_id'] = None
             
         except Exception as e:
