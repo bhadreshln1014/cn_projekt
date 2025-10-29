@@ -15,6 +15,7 @@ from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
+import mss
 
 import sys
 import os
@@ -56,9 +57,19 @@ class VideoConferenceClient:
         self.users = {}
         self.users_lock = threading.Lock()
         
+        # Screen sharing
+        self.screen_socket = None
+        self.is_presenting = False
+        self.screen_sharing_active = False
+        self.current_presenter_id = None
+        self.shared_screen_frame = None
+        self.screen_lock = threading.Lock()
+        self.sct = None  # mss screen capture instance
+        
         # GUI
         self.root = None
         self.video_labels = {}
+        self.screen_label = None  # Label for displaying shared screen
         
         # UI Settings (will be initialized after root window is created)
         self.show_self_video = None  # Will be BooleanVar
@@ -429,6 +440,124 @@ class VideoConferenceClient:
                     print(f"[{self.get_timestamp()}] Error receiving/playing audio: {e}")
                 time.sleep(0.01)
     
+    def start_screen_sharing(self):
+        """Start sharing screen"""
+        try:
+            # Request presenter status from server
+            self.tcp_socket.send("REQUEST_PRESENTER".encode('utf-8'))
+            time.sleep(0.1)
+            
+            # Initialize screen capture
+            self.sct = mss.mss()
+            
+            # Connect to screen sharing port
+            self.screen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.screen_socket.connect((self.server_address, SERVER_SCREEN_PORT))
+            
+            # Send client_id
+            self.screen_socket.send(struct.pack('I', self.client_id))
+            
+            # Wait for response
+            response = self.screen_socket.recv(10)
+            if response == b"GRANTED":
+                self.is_presenting = True
+                self.screen_sharing_active = True
+                
+                # Start screen capture thread
+                screen_thread = threading.Thread(target=self.capture_and_send_screen, daemon=True)
+                screen_thread.start()
+                
+                print(f"[{self.get_timestamp()}] Screen sharing started")
+                return True
+            else:
+                print(f"[{self.get_timestamp()}] Screen sharing denied - another user is presenting")
+                self.screen_socket.close()
+                self.screen_socket = None
+                return False
+                
+        except Exception as e:
+            print(f"[{self.get_timestamp()}] Error starting screen sharing: {e}")
+            if self.screen_socket:
+                self.screen_socket.close()
+                self.screen_socket = None
+            return False
+    
+    def stop_screen_sharing(self):
+        """Stop sharing screen"""
+        self.screen_sharing_active = False
+        self.is_presenting = False
+        
+        # Give thread time to stop
+        time.sleep(0.2)
+        
+        # Close screen socket
+        if self.screen_socket:
+            try:
+                self.screen_socket.close()
+            except:
+                pass
+            self.screen_socket = None
+        
+        # Close screen capture
+        if self.sct:
+            try:
+                self.sct.close()
+            except:
+                pass
+            self.sct = None
+        
+        # Notify server
+        try:
+            self.tcp_socket.send("STOP_PRESENTING".encode('utf-8'))
+        except:
+            pass
+        
+        print(f"[{self.get_timestamp()}] Screen sharing stopped")
+    
+    def capture_and_send_screen(self):
+        """Capture screen and send to server"""
+        while self.screen_sharing_active and self.connected:
+            try:
+                # Capture primary monitor
+                monitor = self.sct.monitors[1]  # Primary monitor
+                screenshot = self.sct.grab(monitor)
+                
+                # Convert to numpy array
+                img = np.array(screenshot)
+                
+                # Convert BGRA to BGR
+                img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                
+                # Resize to screen sharing resolution
+                img = cv2.resize(img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                
+                # Compress to JPEG
+                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), SCREEN_QUALITY]
+                result, encoded_frame = cv2.imencode('.jpg', img, encode_param)
+                
+                if result:
+                    frame_data = encoded_frame.tobytes()
+                    frame_size = len(frame_data)
+                    
+                    # Send frame size + frame data
+                    packet = struct.pack('I', frame_size) + frame_data
+                    self.screen_socket.sendall(packet)
+                
+                # Control frame rate
+                time.sleep(1.0 / SCREEN_FPS)
+                
+            except Exception as e:
+                if self.screen_sharing_active:
+                    print(f"[{self.get_timestamp()}] Error capturing/sending screen: {e}")
+                break
+        
+        self.stop_screen_sharing()
+    
+    def receive_screen_share(self):
+        """Receive shared screen from server"""
+        # This will be called when connected - need to implement socket connection
+        pass
+    
     def receive_control_messages(self):
         """Receive control messages from server via TCP"""
         buffer = ""
@@ -472,6 +601,37 @@ class VideoConferenceClient:
                                         print(f"[{self.get_timestamp()}] Removed video stream for disconnected user {client_id}")
                         except:
                             pass
+                    
+                    elif message.startswith("PRESENTER:"):
+                        # Update presenter status
+                        presenter_data = message.split(":", 1)[1]
+                        if presenter_data == "None":
+                            self.current_presenter_id = None
+                            with self.screen_lock:
+                                self.shared_screen_frame = None
+                            print(f"[{self.get_timestamp()}] No active presenter")
+                        else:
+                            try:
+                                self.current_presenter_id = int(presenter_data)
+                                with self.users_lock:
+                                    username = self.users.get(self.current_presenter_id, "Unknown")
+                                print(f"[{self.get_timestamp()}] {username} is now presenting")
+                            except:
+                                pass
+                    
+                    elif message.startswith("SCREEN:"):
+                        # Receive screen frame
+                        try:
+                            parts = message.split(":", 2)
+                            if len(parts) == 3:
+                                frame_size = int(parts[1])
+                                frame_hex = parts[2]
+                                frame_data = bytes.fromhex(frame_hex)
+                                
+                                with self.screen_lock:
+                                    self.shared_screen_frame = frame_data
+                        except Exception as e:
+                            print(f"[{self.get_timestamp()}] Error receiving screen frame: {e}")
                     
                     if not '\n' in (buffer + data):
                         break
@@ -570,6 +730,14 @@ class VideoConferenceClient:
         )
         speaker_check.pack(side=tk.LEFT, padx=5)
         
+        # Screen sharing button
+        self.share_screen_btn = ttk.Button(
+            controls_frame,
+            text="🖥️ Share Screen",
+            command=self.toggle_screen_sharing
+        )
+        self.share_screen_btn.pack(side=tk.LEFT, padx=5)
+        
         # Layout selector
         ttk.Label(controls_frame, text="Layout:").pack(side=tk.LEFT, padx=(15, 5))
         layout_combo = ttk.Combobox(
@@ -613,9 +781,25 @@ class VideoConferenceClient:
         self.user_count_label = ttk.Label(top_frame, text="Users: 0", font=("Arial", 10))
         self.user_count_label.pack(side=tk.RIGHT, padx=5)
         
-        # Video grid frame
-        self.video_frame = ttk.Frame(main_frame, relief=tk.SUNKEN, borderwidth=2)
-        self.video_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Main content area - split between video grid and screen share
+        content_frame = ttk.Frame(main_frame)
+        content_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        content_frame.columnconfigure(0, weight=1)
+        content_frame.rowconfigure(0, weight=1)
+        
+        # Video grid frame (left side)
+        self.video_frame = ttk.Frame(content_frame, relief=tk.SUNKEN, borderwidth=2)
+        self.video_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Screen share frame (right side - initially hidden)
+        self.screen_frame = ttk.Frame(content_frame, relief=tk.SUNKEN, borderwidth=2)
+        self.screen_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.screen_frame.grid_remove()  # Hide initially
+        
+        # Screen share label
+        self.screen_label = ttk.Label(self.screen_frame, text="No screen being shared", 
+                                     font=("Arial", 14), anchor="center")
+        self.screen_label.pack(expand=True, fill=tk.BOTH)
         
         # Create initial video grid (will be dynamic)
         self.create_video_grid()
@@ -654,6 +838,19 @@ class VideoConferenceClient:
         else:
             # Turn speaker OFF
             self.stop_audio_playback()
+    
+    def toggle_screen_sharing(self):
+        """Toggle screen sharing on/off"""
+        if not self.is_presenting:
+            # Start screen sharing
+            if self.start_screen_sharing():
+                self.share_screen_btn.config(text="🛑 Stop Sharing")
+                self.is_presenting = True
+        else:
+            # Stop screen sharing
+            self.stop_screen_sharing()
+            self.share_screen_btn.config(text="🖥️ Share Screen")
+            self.is_presenting = False
     
     def change_layout(self, event=None):
         """Change video grid layout"""
@@ -851,6 +1048,51 @@ class VideoConferenceClient:
                         label_info['container'].grid()
                     
                     label_info['client_id'] = None
+            
+            # Update shared screen display
+            with self.screen_lock:
+                if self.shared_screen_frame is not None and self.current_presenter_id is not None:
+                    # Show screen sharing frame
+                    self.screen_frame.grid()
+                    
+                    # Decode and display screen frame
+                    try:
+                        nparr = np.frombuffer(self.shared_screen_frame, np.uint8)
+                        screen_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        
+                        if screen_img is not None:
+                            # Resize to fit screen area
+                            screen_width = self.screen_frame.winfo_width()
+                            screen_height = self.screen_frame.winfo_height()
+                            
+                            if screen_width > 1 and screen_height > 1:
+                                # Maintain aspect ratio
+                                aspect = screen_img.shape[1] / screen_img.shape[0]
+                                if screen_width / screen_height > aspect:
+                                    new_height = screen_height - 40
+                                    new_width = int(new_height * aspect)
+                                else:
+                                    new_width = screen_width - 20
+                                    new_height = int(new_width / aspect)
+                                
+                                screen_img = cv2.resize(screen_img, (new_width, new_height))
+                            
+                            # Convert and display
+                            screen_rgb = cv2.cvtColor(screen_img, cv2.COLOR_BGR2RGB)
+                            screen_pil = Image.fromarray(screen_rgb)
+                            screen_tk = ImageTk.PhotoImage(image=screen_pil)
+                            
+                            # Get presenter name
+                            with self.users_lock:
+                                presenter_name = self.users.get(self.current_presenter_id, "Unknown")
+                            
+                            self.screen_label.config(image=screen_tk, text=f"{presenter_name}'s Screen")
+                            self.screen_label.image = screen_tk
+                    except:
+                        pass
+                else:
+                    # Hide screen sharing frame
+                    self.screen_frame.grid_remove()
             
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error updating GUI: {e}")
