@@ -375,13 +375,20 @@ class VideoConferenceClient:
                 container = ttk.Frame(self.video_frame, relief=tk.RAISED, borderwidth=1)
                 container.grid(row=row, column=col, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
                 
-                # Username label
-                username_label = ttk.Label(container, text="", font=("Arial", 9, "bold"))
-                username_label.pack(side=tk.TOP, pady=2)
+                # Configure container to expand uniformly
+                container.columnconfigure(0, weight=1)
+                container.rowconfigure(1, weight=1)
                 
-                # Video label
-                video_label = tk.Label(container, bg="black", text="No Video")
-                video_label.pack(side=tk.TOP, expand=True, fill=tk.BOTH, padx=2, pady=2)
+                # Username label
+                username_label = ttk.Label(container, text="", font=("Arial", 9, "bold"), anchor="center")
+                username_label.grid(row=0, column=0, pady=2, sticky=(tk.W, tk.E))
+                
+                # Video label - centered and uniform with fixed minimum size
+                video_label = tk.Label(container, bg="black", text="No Video", anchor="center")
+                video_label.grid(row=1, column=0, padx=2, pady=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+                
+                # Set minimum size for the video label to ensure uniformity
+                video_label.config(width=40, height=20)  # Minimum size in character units
                 
                 self.video_labels[idx] = {
                     'container': container,
@@ -439,13 +446,26 @@ class VideoConferenceClient:
             num_videos = len(display_streams)
             rows, cols = self.calculate_grid_size(num_videos)
             
-            # Calculate video size based on grid
+            # Calculate uniform video size based on grid - all videos same size
             container_width = self.video_frame.winfo_width()
             container_height = self.video_frame.winfo_height()
             
             if container_width > 1 and container_height > 1:
-                video_width = max(160, (container_width // cols) - 20)
-                video_height = max(120, (container_height // rows) - 40)
+                # Calculate available space per cell
+                cell_width = (container_width // cols) - 20  # Account for padding
+                cell_height = (container_height // rows) - 50  # Account for padding and username label
+                
+                # Maintain 4:3 aspect ratio and fit within cell
+                aspect_ratio = 4.0 / 3.0
+                
+                # Try fitting by width first
+                video_width = max(160, cell_width)
+                video_height = int(video_width / aspect_ratio)
+                
+                # If height exceeds cell, fit by height instead
+                if video_height > cell_height:
+                    video_height = max(120, cell_height)
+                    video_width = int(video_height * aspect_ratio)
             else:
                 video_width = 320
                 video_height = 240
@@ -467,14 +487,15 @@ class VideoConferenceClient:
                     # Update username label
                     label_info['username'].config(text=username)
                     
-                    # Convert and display frame
+                    # Convert and display frame - use SAME size for ALL videos
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     frame_resized = cv2.resize(frame_rgb, (video_width, video_height))
                     
                     img = Image.fromarray(frame_resized)
                     imgtk = ImageTk.PhotoImage(image=img)
                     
-                    label_info['video'].config(image=imgtk, text="")
+                    # Set image and ensure label maintains fixed size
+                    label_info['video'].config(image=imgtk, text="", width=video_width, height=video_height)
                     label_info['video'].image = imgtk
                     label_info['client_id'] = client_id
                     
@@ -487,10 +508,16 @@ class VideoConferenceClient:
                         # Hide the container completely in auto mode
                         label_info['container'].grid_remove()
                     else:
-                        # Show "No Video" placeholder in manual mode
+                        # Show "No Video" placeholder in manual mode with same size
                         label_info['username'].config(text="")
-                        label_info['video'].config(image="", text="No Video", bg="black")
-                        label_info['video'].image = None
+                        
+                        # Create a black placeholder image with same dimensions as videos
+                        placeholder = Image.new('RGB', (video_width, video_height), color='black')
+                        placeholder_tk = ImageTk.PhotoImage(image=placeholder)
+                        
+                        label_info['video'].config(image=placeholder_tk, text="No Video", compound="center", 
+                                                   fg="white", width=video_width, height=video_height)
+                        label_info['video'].image = placeholder_tk
                         label_info['container'].grid()
                     
                     label_info['client_id'] = None
