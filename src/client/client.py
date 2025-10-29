@@ -319,12 +319,20 @@ class VideoConferenceClient:
         self.audio_capturing = False
         
         # Give the capture thread time to stop
-        time.sleep(0.1)
+        time.sleep(0.15)
         
         # Close audio input stream
         if self.audio_stream_input is not None:
-            self.audio_stream_input.stop_stream()
-            self.audio_stream_input.close()
+            try:
+                self.audio_stream_input.stop_stream()
+            except:
+                pass
+            
+            try:
+                self.audio_stream_input.close()
+            except:
+                pass
+            
             self.audio_stream_input = None
             print(f"[{self.get_timestamp()}] Microphone closed")
         
@@ -334,7 +342,7 @@ class VideoConferenceClient:
         """Capture audio and send to server"""
         while self.audio_capturing and self.connected:
             try:
-                # Read audio data
+                # Read audio data (non-blocking with overflow handling)
                 audio_data = self.audio_stream_input.read(AUDIO_CHUNK, exception_on_overflow=False)
                 
                 # Prepend client_id to the audio data
@@ -342,6 +350,10 @@ class VideoConferenceClient:
                 
                 # Send via UDP
                 self.audio_udp_socket.sendto(packet, (self.server_address, SERVER_AUDIO_PORT))
+                
+                # Small delay to prevent flooding (AUDIO_CHUNK/AUDIO_RATE = natural timing)
+                # This helps sync with video and reduces network congestion
+                time.sleep(AUDIO_CHUNK / AUDIO_RATE * 0.95)  # 95% to account for processing time
                 
             except Exception as e:
                 if self.audio_capturing:
@@ -373,10 +385,21 @@ class VideoConferenceClient:
         """Stop audio playback"""
         self.audio_playing = False
         
+        # Give the playback thread time to stop writing
+        time.sleep(0.15)
+        
         # Close audio output stream
         if self.audio_stream_output is not None:
-            self.audio_stream_output.stop_stream()
-            self.audio_stream_output.close()
+            try:
+                self.audio_stream_output.stop_stream()
+            except:
+                pass
+            
+            try:
+                self.audio_stream_output.close()
+            except:
+                pass
+            
             self.audio_stream_output = None
             print(f"[{self.get_timestamp()}] Speaker closed")
         
@@ -393,7 +416,13 @@ class VideoConferenceClient:
                 
                 # Play audio if playback is enabled
                 if self.audio_playing and self.audio_stream_output is not None:
-                    self.audio_stream_output.write(data)
+                    try:
+                        self.audio_stream_output.write(data)
+                    except Exception as write_error:
+                        # Stream might be closing, skip this chunk
+                        if self.audio_playing:
+                            print(f"[{self.get_timestamp()}] Audio write error: {write_error}")
+                        time.sleep(0.01)
                 
             except Exception as e:
                 if self.connected:
