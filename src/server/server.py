@@ -1,6 +1,6 @@
 """
 Server Application for LAN-Based Multi-User Communication
-Handles video streaming, user session management, and broadcasting
+Handles video streaming, audio mixing, user session management, and broadcasting
 """
 
 import socket
@@ -8,6 +8,7 @@ import threading
 import time
 import pickle
 import struct
+import numpy as np
 from datetime import datetime
 
 import sys
@@ -27,7 +28,11 @@ class VideoConferenceServer:
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         
-        # Connected clients: {client_id: {'tcp_conn': conn, 'address': addr, 'udp_address': udp_addr, 'username': name}}
+        # UDP socket for audio streaming
+        self.audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.audio_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        # Connected clients: {client_id: {'tcp_conn': conn, 'address': addr, 'udp_address': udp_addr, 'audio_address': audio_addr, 'username': name}}
         self.clients = {}
         self.client_id_counter = 0
         self.clients_lock = threading.Lock()
@@ -35,6 +40,10 @@ class VideoConferenceServer:
         # Video frames buffer: {client_id: latest_frame_data}
         self.video_frames = {}
         self.frames_lock = threading.Lock()
+        
+        # Audio buffers: {client_id: latest_audio_data}
+        self.audio_buffers = {}
+        self.audio_lock = threading.Lock()
         
         self.running = False
         
@@ -45,19 +54,27 @@ class VideoConferenceServer:
             self.tcp_socket.bind((SERVER_HOST, SERVER_TCP_PORT))
             self.tcp_socket.listen(MAX_USERS)
             
-            # Bind UDP socket
+            # Bind UDP socket for video
             self.udp_socket.bind((SERVER_HOST, SERVER_UDP_PORT))
+            
+            # Bind UDP socket for audio
+            self.audio_socket.bind((SERVER_HOST, SERVER_AUDIO_PORT))
             
             self.running = True
             
             print(f"[{self.get_timestamp()}] Server started")
             print(f"[{self.get_timestamp()}] TCP Control Port: {SERVER_TCP_PORT}")
             print(f"[{self.get_timestamp()}] UDP Video Port: {SERVER_UDP_PORT}")
+            print(f"[{self.get_timestamp()}] UDP Audio Port: {SERVER_AUDIO_PORT}")
             print(f"[{self.get_timestamp()}] Waiting for connections...")
             
             # Start UDP video receiver thread
             udp_thread = threading.Thread(target=self.receive_video_streams, daemon=True)
             udp_thread.start()
+            
+            # Start UDP audio receiver/mixer thread
+            audio_thread = threading.Thread(target=self.receive_and_mix_audio, daemon=True)
+            audio_thread.start()
             
             # Start TCP connection acceptor
             self.accept_connections()
@@ -198,6 +215,77 @@ class VideoConferenceServer:
                     except Exception as e:
                         pass  # Silently ignore send errors
     
+    def receive_and_mix_audio(self):
+        """Receive audio streams from clients, mix them, and broadcast"""
+        print(f"[{self.get_timestamp()}] Audio receiver/mixer started")
+        
+        while self.running:
+            try:
+                # Receive audio packet
+                data, addr = self.audio_socket.recvfrom(MAX_PACKET_SIZE)
+                
+                if len(data) < 4:
+                    continue
+                
+                # Extract client_id from packet (first 4 bytes)
+                client_id = struct.unpack('I', data[:4])[0]
+                audio_data = data[4:]
+                
+                # Update audio address for this client
+                with self.clients_lock:
+                    if client_id in self.clients:
+                        self.clients[client_id]['audio_address'] = addr
+                
+                # Store the audio data
+                with self.audio_lock:
+                    self.audio_buffers[client_id] = audio_data
+                
+                # Mix and broadcast audio
+                self.mix_and_broadcast_audio()
+                
+            except Exception as e:
+                if self.running:
+                    print(f"[{self.get_timestamp()}] Error receiving audio: {e}")
+    
+    def mix_and_broadcast_audio(self):
+        """Mix all audio streams and broadcast to all clients"""
+        with self.audio_lock:
+            if len(self.audio_buffers) == 0:
+                return
+            
+            try:
+                # Convert all audio buffers to numpy arrays
+                audio_arrays = []
+                for client_id, audio_data in self.audio_buffers.items():
+                    # Convert bytes to int16 array
+                    audio_array = np.frombuffer(audio_data, dtype=np.int16)
+                    audio_arrays.append(audio_array.astype(np.float32))
+                
+                # Mix audio by averaging (prevents clipping)
+                if len(audio_arrays) > 0:
+                    # Ensure all arrays have the same length
+                    min_length = min(len(arr) for arr in audio_arrays)
+                    audio_arrays = [arr[:min_length] for arr in audio_arrays]
+                    
+                    # Average all audio streams
+                    mixed_audio = np.mean(audio_arrays, axis=0)
+                    
+                    # Convert back to int16
+                    mixed_audio = np.clip(mixed_audio, -32768, 32767).astype(np.int16)
+                    mixed_data = mixed_audio.tobytes()
+                    
+                    # Broadcast mixed audio to all clients
+                    with self.clients_lock:
+                        for client_id, client_info in self.clients.items():
+                            if client_info.get('audio_address') is not None:
+                                try:
+                                    self.audio_socket.sendto(mixed_data, client_info['audio_address'])
+                                except:
+                                    pass  # Silently ignore send errors
+                
+            except Exception as e:
+                print(f"[{self.get_timestamp()}] Error mixing audio: {e}")
+    
     def broadcast_user_list(self):
         """Send updated user list to all connected clients"""
         with self.clients_lock:
@@ -239,6 +327,11 @@ class VideoConferenceServer:
         
         try:
             self.udp_socket.close()
+        except:
+            pass
+        
+        try:
+            self.audio_socket.close()
         except:
             pass
         

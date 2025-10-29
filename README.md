@@ -4,16 +4,27 @@ A robust, standalone, server-based multi-user communication application for Loca
 
 ## Features
 
-### Module 1: Multi-User Video Conferencing
+### Module 1: Multi-User Video Conferencing ✅
 - Real-time video capture and transmission
 - Server-side broadcasting to all clients
-- Multi-stream rendering in grid layout
+- Multi-stream rendering in dynamic grid layout
 - UDP-based low-latency streaming
+- Camera toggle with hardware control
+- Dynamic layouts (Auto, 1×1, 2×2, 3×3, 4×4)
+
+### Module 2: Multi-User Audio Conferencing ✅
+- Real-time audio capture from microphone
+- Server-side audio mixing (NumPy-based averaging)
+- Low-latency audio playback
+- Independent microphone and speaker controls
+- 44100 Hz CD-quality audio
+- ~25-30ms end-to-end latency
 
 ## Requirements
 
 - Python 3.8+
-- Webcam
+- Webcam (for video conferencing)
+- Microphone and speakers/headphones (for audio conferencing)
 - LAN connectivity
 
 ## Installation
@@ -36,9 +47,11 @@ python src/client/client.py
 
 ## Architecture
 
-- **Network**: Client-Server architecture using TCP/IP for control and UDP for video streaming
+- **Network**: Client-Server architecture using TCP for control, UDP for video/audio streaming
+- **Video**: JPEG compression, 640×480 @ 30 FPS, UDP port 5001
+- **Audio**: PCM 16-bit mono @ 44100 Hz, server-side mixing, UDP port 5002
 - **Platform**: Cross-platform (Windows/Linux)
-- **UI**: Tkinter-based GUI
+- **UI**: Tkinter-based GUI with dynamic layouts
 
 ## Project Structure
 

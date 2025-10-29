@@ -1,6 +1,6 @@
 """
 Client Application for LAN-Based Multi-User Communication
-Handles video capture, transmission, receiving, and GUI
+Handles video capture, audio capture, transmission, receiving, and GUI
 """
 
 import socket
@@ -10,6 +10,7 @@ import pickle
 import struct
 import cv2
 import numpy as np
+import pyaudio
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -27,6 +28,7 @@ class VideoConferenceClient:
         # Network
         self.tcp_socket = None
         self.udp_socket = None
+        self.audio_udp_socket = None
         self.server_address = None
         self.client_id = None
         self.username = None
@@ -35,6 +37,13 @@ class VideoConferenceClient:
         # Video capture
         self.camera = None
         self.capturing = False
+        
+        # Audio
+        self.audio = None
+        self.audio_stream_input = None
+        self.audio_stream_output = None
+        self.audio_capturing = False
+        self.audio_playing = False
         
         # Video streams: {client_id: frame_data}
         self.video_streams = {}
@@ -51,6 +60,8 @@ class VideoConferenceClient:
         
         # UI Settings (will be initialized after root window is created)
         self.show_self_video = None  # Will be BooleanVar
+        self.microphone_on = None  # Will be BooleanVar
+        self.speaker_on = None  # Will be BooleanVar
         self.current_layout = "auto"  # auto, 1x1, 2x2, 3x3, 4x4
         
     def connect_to_server(self, server_ip, username):
@@ -77,12 +88,21 @@ class VideoConferenceClient:
                 # Create UDP socket for video
                 self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 
+                # Create UDP socket for audio
+                self.audio_udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                
+                # Initialize PyAudio
+                self.audio = pyaudio.PyAudio()
+                
                 # Start receiver threads
                 tcp_thread = threading.Thread(target=self.receive_control_messages, daemon=True)
                 tcp_thread.start()
                 
                 udp_thread = threading.Thread(target=self.receive_video_streams, daemon=True)
                 udp_thread.start()
+                
+                audio_thread = threading.Thread(target=self.receive_audio_stream, daemon=True)
+                audio_thread.start()
                 
                 return True
             else:
@@ -167,6 +187,116 @@ class VideoConferenceClient:
             except Exception as e:
                 print(f"[{self.get_timestamp()}] Error capturing/sending video: {e}")
                 time.sleep(0.1)
+    
+    def start_audio_capture(self):
+        """Start capturing audio from microphone"""
+        try:
+            # Open audio input stream
+            self.audio_stream_input = self.audio.open(
+                format=AUDIO_FORMAT,
+                channels=AUDIO_CHANNELS,
+                rate=AUDIO_RATE,
+                input=True,
+                frames_per_buffer=AUDIO_CHUNK
+            )
+            
+            self.audio_capturing = True
+            
+            # Start audio capture thread
+            audio_capture_thread = threading.Thread(target=self.capture_and_send_audio, daemon=True)
+            audio_capture_thread.start()
+            
+            print(f"[{self.get_timestamp()}] Audio capture started")
+            return True
+            
+        except Exception as e:
+            print(f"[{self.get_timestamp()}] Error starting audio capture: {e}")
+            return False
+    
+    def stop_audio_capture(self):
+        """Stop capturing audio"""
+        self.audio_capturing = False
+        
+        # Give the capture thread time to stop
+        time.sleep(0.1)
+        
+        # Close audio input stream
+        if self.audio_stream_input is not None:
+            self.audio_stream_input.stop_stream()
+            self.audio_stream_input.close()
+            self.audio_stream_input = None
+            print(f"[{self.get_timestamp()}] Microphone closed")
+        
+        print(f"[{self.get_timestamp()}] Audio capture stopped")
+    
+    def capture_and_send_audio(self):
+        """Capture audio and send to server"""
+        while self.audio_capturing and self.connected:
+            try:
+                # Read audio data
+                audio_data = self.audio_stream_input.read(AUDIO_CHUNK, exception_on_overflow=False)
+                
+                # Prepend client_id to the audio data
+                packet = struct.pack('I', self.client_id) + audio_data
+                
+                # Send via UDP
+                self.audio_udp_socket.sendto(packet, (self.server_address, SERVER_AUDIO_PORT))
+                
+            except Exception as e:
+                if self.audio_capturing:
+                    print(f"[{self.get_timestamp()}] Error capturing/sending audio: {e}")
+                time.sleep(0.01)
+    
+    def start_audio_playback(self):
+        """Start audio playback"""
+        try:
+            # Open audio output stream
+            self.audio_stream_output = self.audio.open(
+                format=AUDIO_FORMAT,
+                channels=AUDIO_CHANNELS,
+                rate=AUDIO_RATE,
+                output=True,
+                frames_per_buffer=AUDIO_CHUNK
+            )
+            
+            self.audio_playing = True
+            print(f"[{self.get_timestamp()}] Audio playback started")
+            return True
+            
+        except Exception as e:
+            print(f"[{self.get_timestamp()}] Error starting audio playback: {e}")
+            return False
+    
+    def stop_audio_playback(self):
+        """Stop audio playback"""
+        self.audio_playing = False
+        
+        # Close audio output stream
+        if self.audio_stream_output is not None:
+            self.audio_stream_output.stop_stream()
+            self.audio_stream_output.close()
+            self.audio_stream_output = None
+            print(f"[{self.get_timestamp()}] Speaker closed")
+        
+        print(f"[{self.get_timestamp()}] Audio playback stopped")
+    
+    def receive_audio_stream(self):
+        """Receive mixed audio stream from server and play it"""
+        print(f"[{self.get_timestamp()}] Audio receiver started")
+        
+        while self.connected:
+            try:
+                # Receive audio packet
+                data, addr = self.audio_udp_socket.recvfrom(MAX_PACKET_SIZE)
+                
+                # Play audio if playback is enabled
+                if self.audio_playing and self.audio_stream_output is not None:
+                    self.audio_stream_output.write(data)
+                
+            except Exception as e:
+                if self.connected:
+                    print(f"[{self.get_timestamp()}] Error receiving/playing audio: {e}")
+                time.sleep(0.01)
     
     def receive_control_messages(self):
         """Receive control messages from server via TCP"""
@@ -257,6 +387,8 @@ class VideoConferenceClient:
         
         # Initialize UI variables now that root exists
         self.show_self_video = tk.BooleanVar(value=True)
+        self.microphone_on = tk.BooleanVar(value=True)
+        self.speaker_on = tk.BooleanVar(value=True)
         self.layout_var = tk.StringVar(value="auto")
         
         # Main container
@@ -283,11 +415,29 @@ class VideoConferenceClient:
         # Self video toggle
         self_video_check = ttk.Checkbutton(
             controls_frame, 
-            text="Camera On",
+            text="📹 Camera",
             variable=self.show_self_video,
             command=self.toggle_self_video
         )
         self_video_check.pack(side=tk.LEFT, padx=5)
+        
+        # Microphone toggle
+        mic_check = ttk.Checkbutton(
+            controls_frame,
+            text="🎤 Microphone",
+            variable=self.microphone_on,
+            command=self.toggle_microphone
+        )
+        mic_check.pack(side=tk.LEFT, padx=5)
+        
+        # Speaker toggle
+        speaker_check = ttk.Checkbutton(
+            controls_frame,
+            text="🔊 Speaker",
+            variable=self.speaker_on,
+            command=self.toggle_speaker
+        )
+        speaker_check.pack(side=tk.LEFT, padx=5)
         
         # Layout selector
         ttk.Label(controls_frame, text="Layout:").pack(side=tk.LEFT, padx=(15, 5))
@@ -324,6 +474,24 @@ class VideoConferenceClient:
         else:
             # Turn video OFF - stop capturing and transmitting
             self.stop_video_capture()
+    
+    def toggle_microphone(self):
+        """Toggle microphone on/off"""
+        if self.microphone_on.get():
+            # Turn microphone ON
+            self.start_audio_capture()
+        else:
+            # Turn microphone OFF
+            self.stop_audio_capture()
+    
+    def toggle_speaker(self):
+        """Toggle speaker on/off"""
+        if self.speaker_on.get():
+            # Turn speaker ON
+            self.start_audio_playback()
+        else:
+            # Turn speaker OFF
+            self.stop_audio_playback()
     
     def change_layout(self, event=None):
         """Change video grid layout"""
@@ -541,10 +709,34 @@ class VideoConferenceClient:
         
         self.connected = False
         self.capturing = False
+        self.audio_capturing = False
+        self.audio_playing = False
         
         # Release camera
         if self.camera is not None:
             self.camera.release()
+        
+        # Close audio streams
+        try:
+            if self.audio_stream_input:
+                self.audio_stream_input.stop_stream()
+                self.audio_stream_input.close()
+        except:
+            pass
+        
+        try:
+            if self.audio_stream_output:
+                self.audio_stream_output.stop_stream()
+                self.audio_stream_output.close()
+        except:
+            pass
+        
+        # Terminate PyAudio
+        try:
+            if self.pyaudio_instance:
+                self.pyaudio_instance.terminate()
+        except:
+            pass
         
         # Close sockets
         try:
@@ -556,6 +748,12 @@ class VideoConferenceClient:
         try:
             if self.udp_socket:
                 self.udp_socket.close()
+        except:
+            pass
+        
+        try:
+            if self.audio_udp_socket:
+                self.audio_udp_socket.close()
         except:
             pass
         
@@ -650,6 +848,10 @@ def main():
         if client.connect_to_server(server_ip, username):
             # Start video capture
             client.start_video_capture()
+            
+            # Start audio capture and playback
+            client.start_audio_capture()
+            client.start_audio_playback()
             
             # Run GUI
             root.mainloop()

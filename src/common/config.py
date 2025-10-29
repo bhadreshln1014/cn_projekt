@@ -6,12 +6,20 @@ Configuration file for the LAN Communication Application
 SERVER_HOST = '0.0.0.0'  # Listen on all network interfaces
 SERVER_TCP_PORT = 5000    # For control messages (user connection, session management)
 SERVER_UDP_PORT = 5001    # For video streaming
+SERVER_AUDIO_PORT = 5002  # For audio streaming
 
 # Video Configuration
 VIDEO_WIDTH = 640
 VIDEO_HEIGHT = 480
 VIDEO_FPS = 30
 VIDEO_QUALITY = 60  # JPEG compression quality (0-100)
+
+# Audio Configuration
+AUDIO_RATE = 44100        # Sample rate (Hz)
+AUDIO_CHUNK = 1024        # Samples per chunk
+AUDIO_CHANNELS = 1        # Mono audio
+AUDIO_FORMAT = 8          # pyaudio.paInt16 (16-bit audio)
+AUDIO_FORMAT_BYTES = 2    # Bytes per sample
 
 # Network Configuration
 MAX_PACKET_SIZE = 65507  # Max UDP packet size
