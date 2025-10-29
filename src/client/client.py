@@ -99,11 +99,11 @@ class VideoConferenceClient:
     def start_video_capture(self):
         """Start capturing video from webcam"""
         try:
-            if self.camera is None:
-                self.camera = cv2.VideoCapture(0)
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, VIDEO_WIDTH)
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, VIDEO_HEIGHT)
-                self.camera.set(cv2.CAP_PROP_FPS, VIDEO_FPS)
+            # Create new camera instance
+            self.camera = cv2.VideoCapture(0)
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, VIDEO_WIDTH)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, VIDEO_HEIGHT)
+            self.camera.set(cv2.CAP_PROP_FPS, VIDEO_FPS)
             
             if not self.camera.isOpened():
                 print(f"[{self.get_timestamp()}] Failed to open camera")
@@ -123,8 +123,18 @@ class VideoConferenceClient:
             return False
     
     def stop_video_capture(self):
-        """Stop capturing video from webcam"""
+        """Stop capturing video from webcam and release camera"""
         self.capturing = False
+        
+        # Give the capture thread time to stop
+        time.sleep(0.2)
+        
+        # Release the camera
+        if self.camera is not None:
+            self.camera.release()
+            self.camera = None
+            print(f"[{self.get_timestamp()}] Camera released")
+        
         print(f"[{self.get_timestamp()}] Video capture stopped")
     
     def capture_and_send(self):
