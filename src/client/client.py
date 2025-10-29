@@ -48,6 +48,10 @@ class VideoConferenceClient:
         self.root = None
         self.video_labels = {}
         
+        # UI Settings (will be initialized after root window is created)
+        self.show_self_video = None  # Will be BooleanVar
+        self.current_layout = "auto"  # auto, 1x1, 2x2, 3x3, 4x4
+        
     def connect_to_server(self, server_ip, username):
         """Connect to the server"""
         try:
@@ -220,6 +224,10 @@ class VideoConferenceClient:
         self.root.geometry("1200x800")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
+        # Initialize UI variables now that root exists
+        self.show_self_video = tk.BooleanVar(value=True)
+        self.layout_var = tk.StringVar(value="auto")
+        
         # Main container
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -237,6 +245,31 @@ class VideoConferenceClient:
         self.status_label = ttk.Label(top_frame, text="Not Connected", font=("Arial", 10))
         self.status_label.pack(side=tk.LEFT, padx=5)
         
+        # Controls frame (center)
+        controls_frame = ttk.Frame(top_frame)
+        controls_frame.pack(side=tk.LEFT, padx=20, expand=True)
+        
+        # Self video toggle
+        self_video_check = ttk.Checkbutton(
+            controls_frame, 
+            text="Show My Video",
+            variable=self.show_self_video,
+            command=self.toggle_self_video
+        )
+        self_video_check.pack(side=tk.LEFT, padx=5)
+        
+        # Layout selector
+        ttk.Label(controls_frame, text="Layout:").pack(side=tk.LEFT, padx=(15, 5))
+        layout_combo = ttk.Combobox(
+            controls_frame,
+            textvariable=self.layout_var,
+            values=["auto", "1x1", "2x2", "3x3", "4x4"],
+            state="readonly",
+            width=8
+        )
+        layout_combo.pack(side=tk.LEFT, padx=5)
+        layout_combo.bind("<<ComboboxSelected>>", self.change_layout)
+        
         self.user_count_label = ttk.Label(top_frame, text="Users: 0", font=("Arial", 10))
         self.user_count_label.pack(side=tk.RIGHT, padx=5)
         
@@ -244,12 +277,7 @@ class VideoConferenceClient:
         self.video_frame = ttk.Frame(main_frame, relief=tk.SUNKEN, borderwidth=2)
         self.video_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # Configure video grid
-        for i in range(3):
-            self.video_frame.columnconfigure(i, weight=1)
-            self.video_frame.rowconfigure(i, weight=1)
-        
-        # Create placeholder video labels
+        # Create initial video grid (will be dynamic)
         self.create_video_grid()
         
         # Start GUI update loop
@@ -257,33 +285,76 @@ class VideoConferenceClient:
         
         return self.root
     
+    def toggle_self_video(self):
+        """Toggle showing self video"""
+        # Force immediate GUI update
+        pass
+    
+    def change_layout(self, event=None):
+        """Change video grid layout"""
+        layout = self.layout_var.get()
+        self.current_layout = layout
+        self.create_video_grid()
+    
+    def calculate_grid_size(self, num_videos):
+        """Calculate optimal grid size based on number of videos and layout setting"""
+        if self.current_layout == "auto":
+            # Automatic layout based on number of videos
+            if num_videos <= 1:
+                return 1, 1
+            elif num_videos <= 4:
+                return 2, 2
+            elif num_videos <= 9:
+                return 3, 3
+            else:
+                return 4, 4
+        else:
+            # Fixed layout
+            size = int(self.current_layout[0])  # Extract number from "1x1", "2x2", etc.
+            return size, size
+    
     def create_video_grid(self):
-        """Create a grid of video display labels"""
-        positions = [
-            (0, 0), (0, 1), (0, 2),
-            (1, 0), (1, 1), (1, 2),
-            (2, 0), (2, 1), (2, 2)
-        ]
+        """Create a dynamic grid of video display labels"""
+        # Clear existing grid
+        for widget in self.video_frame.winfo_children():
+            widget.destroy()
         
-        for idx, (row, col) in enumerate(positions):
-            # Container frame for each video
-            container = ttk.Frame(self.video_frame, relief=tk.RAISED, borderwidth=1)
-            container.grid(row=row, column=col, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
-            
-            # Username label
-            username_label = ttk.Label(container, text="", font=("Arial", 9, "bold"))
-            username_label.pack(side=tk.TOP, pady=2)
-            
-            # Video label
-            video_label = tk.Label(container, bg="black", text="No Video")
-            video_label.pack(side=tk.TOP, expand=True, fill=tk.BOTH, padx=2, pady=2)
-            
-            self.video_labels[idx] = {
-                'container': container,
-                'username': username_label,
-                'video': video_label,
-                'client_id': None
-            }
+        self.video_labels = {}
+        
+        # Get maximum grid size based on current layout
+        if self.current_layout == "auto":
+            max_size = 4  # Default max for auto
+        else:
+            max_size = int(self.current_layout[0])
+        
+        # Configure grid weights
+        for i in range(max_size):
+            self.video_frame.columnconfigure(i, weight=1)
+            self.video_frame.rowconfigure(i, weight=1)
+        
+        # Create grid positions
+        idx = 0
+        for row in range(max_size):
+            for col in range(max_size):
+                # Container frame for each video
+                container = ttk.Frame(self.video_frame, relief=tk.RAISED, borderwidth=1)
+                container.grid(row=row, column=col, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
+                
+                # Username label
+                username_label = ttk.Label(container, text="", font=("Arial", 9, "bold"))
+                username_label.pack(side=tk.TOP, pady=2)
+                
+                # Video label
+                video_label = tk.Label(container, bg="black", text="No Video")
+                video_label.pack(side=tk.TOP, expand=True, fill=tk.BOTH, padx=2, pady=2)
+                
+                self.video_labels[idx] = {
+                    'container': container,
+                    'username': username_label,
+                    'video': video_label,
+                    'client_id': None
+                }
+                idx += 1
     
     def update_gui(self):
         """Update GUI with current video frames"""
@@ -302,11 +373,12 @@ class VideoConferenceClient:
             with self.streams_lock:
                 client_ids = list(self.video_streams.keys())
             
-            # Add self camera if capturing
+            # Add self camera if capturing and checkbox is checked
             display_streams = {}
             
-            # Self video (from camera)
-            if self.capturing and self.camera is not None:
+            # Self video (from camera) - only if toggle is enabled
+            show_self = self.show_self_video.get() if self.show_self_video else True
+            if show_self and self.capturing and self.camera is not None:
                 ret, frame = self.camera.read()
                 if ret:
                     display_streams[self.client_id] = frame
@@ -316,10 +388,26 @@ class VideoConferenceClient:
                 for client_id, frame in self.video_streams.items():
                     display_streams[client_id] = frame
             
+            # Calculate optimal grid size
+            num_videos = len(display_streams)
+            rows, cols = self.calculate_grid_size(num_videos)
+            
+            # Calculate video size based on grid
+            container_width = self.video_frame.winfo_width()
+            container_height = self.video_frame.winfo_height()
+            
+            if container_width > 1 and container_height > 1:
+                video_width = max(160, (container_width // cols) - 20)
+                video_height = max(120, (container_height // rows) - 40)
+            else:
+                video_width = 320
+                video_height = 240
+            
             # Update video grid
+            display_index = 0
             for idx, label_info in self.video_labels.items():
-                if idx < len(display_streams):
-                    client_id = list(display_streams.keys())[idx]
+                if display_index < len(display_streams):
+                    client_id = list(display_streams.keys())[display_index]
                     frame = display_streams[client_id]
                     
                     # Get username
@@ -334,7 +422,7 @@ class VideoConferenceClient:
                     
                     # Convert and display frame
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    frame_resized = cv2.resize(frame_rgb, (320, 240))
+                    frame_resized = cv2.resize(frame_rgb, (video_width, video_height))
                     
                     img = Image.fromarray(frame_resized)
                     imgtk = ImageTk.PhotoImage(image=img)
@@ -342,6 +430,7 @@ class VideoConferenceClient:
                     label_info['video'].config(image=imgtk, text="")
                     label_info['video'].image = imgtk
                     label_info['client_id'] = client_id
+                    display_index += 1
                 else:
                     # Clear unused slots
                     label_info['username'].config(text="")
