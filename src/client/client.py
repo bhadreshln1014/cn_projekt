@@ -107,6 +107,12 @@ class VideoConferenceClient:
                 # Create UDP socket for screen sharing
                 self.screen_udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 
+                # Send initial packet on screen UDP socket so server learns our address
+                # This is a dummy packet with just our client_id, no frame data
+                initial_packet = struct.pack('I', self.client_id)
+                self.screen_udp_socket.sendto(initial_packet, (self.server_address, SERVER_SCREEN_UDP_PORT))
+                print(f"[{self.get_timestamp()}] Sent initial screen UDP packet to establish address")
+                
                 # Initialize PyAudio
                 self.audio = pyaudio.PyAudio()
                 

@@ -159,6 +159,7 @@ class VideoConferenceServer:
                         'tcp_conn': conn,
                         'address': address,
                         'udp_address': None,
+                        'screen_udp_address': None,
                         'username': username
                     }
                 
@@ -525,6 +526,17 @@ class VideoConferenceServer:
                 client_id = struct.unpack('I', data[:4])[0]
                 frame_data = data[4:]
                 
+                # Learn client's screen UDP address
+                with self.clients_lock:
+                    if client_id in self.clients:
+                        if self.clients[client_id]['screen_udp_address'] is None:
+                            self.clients[client_id]['screen_udp_address'] = addr
+                            print(f"[{self.get_timestamp()}] Learned screen UDP address for client {client_id}: {addr}")
+                
+                # Skip if this is just an initial packet with no frame data
+                if len(frame_data) == 0:
+                    continue
+                
                 # Verify this is the current presenter
                 with self.presenter_lock:
                     if self.presenter_id != client_id:
@@ -552,9 +564,9 @@ class VideoConferenceServer:
         with self.clients_lock:
             for client_id, client_info in self.clients.items():
                 # Send to all clients including presenter (for their own preview)
-                if client_info['udp_address'] is not None:
+                if client_info['screen_udp_address'] is not None:
                     try:
-                        self.screen_udp_socket.sendto(frame_data, client_info['udp_address'])
+                        self.screen_udp_socket.sendto(frame_data, client_info['screen_udp_address'])
                     except:
                         pass  # Client might have disconnected
     
