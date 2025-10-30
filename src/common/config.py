@@ -7,7 +7,8 @@ SERVER_HOST = '0.0.0.0'  # Listen on all network interfaces
 SERVER_TCP_PORT = 5000    # For control messages (user connection, session management)
 SERVER_UDP_PORT = 5001    # For video streaming
 SERVER_AUDIO_PORT = 5002  # For audio streaming
-SERVER_SCREEN_PORT = 5003 # For screen sharing (TCP)
+SERVER_SCREEN_PORT = 5003 # For screen sharing control (TCP)
+SERVER_SCREEN_UDP_PORT = 5004 # For screen frame data (UDP)
 
 # Video Configuration
 VIDEO_WIDTH = 640
@@ -23,11 +24,11 @@ AUDIO_FORMAT = 8          # pyaudio.paInt16 (16-bit audio)
 AUDIO_FORMAT_BYTES = 2    # Bytes per sample
 
 # Screen Sharing Configuration
-SCREEN_WIDTH = 1280       # Screen sharing resolution width
-SCREEN_HEIGHT = 720       # Screen sharing resolution height
+SCREEN_WIDTH = 960        # Screen sharing resolution width (reduced for UDP packet size)
+SCREEN_HEIGHT = 540       # Screen sharing resolution height (16:9 aspect ratio)
 SCREEN_FPS = 10           # Screen sharing frame rate (lower than video for bandwidth)
-SCREEN_QUALITY = 70       # JPEG compression quality for screen sharing (0-100)
-SCREEN_CHUNK_SIZE = 100000 # Size of each screen sharing chunk
+SCREEN_QUALITY = 50       # JPEG compression quality for screen sharing (reduced to fit UDP)
+MAX_SCREEN_PACKET_SIZE = 65000 # Max UDP packet size for screen frames
 
 # Network Configuration
 MAX_PACKET_SIZE = 65507  # Max UDP packet size

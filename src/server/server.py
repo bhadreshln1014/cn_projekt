@@ -32,9 +32,13 @@ class VideoConferenceServer:
         self.audio_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.audio_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         
-        # TCP socket for screen sharing
+        # TCP socket for screen sharing control
         self.screen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.screen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        # UDP socket for screen frame data
+        self.screen_udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.screen_udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         
         # Connected clients: {client_id: {'tcp_conn': conn, 'address': addr, 'udp_address': udp_addr, 'audio_address': audio_addr, 'username': name}}
         self.clients = {}
@@ -70,9 +74,14 @@ class VideoConferenceServer:
             # Bind UDP socket for audio
             self.audio_socket.bind((SERVER_HOST, SERVER_AUDIO_PORT))
             
-            # Bind TCP socket for screen sharing
+            # Bind TCP socket for screen sharing control
+            print(f"[{self.get_timestamp()}] Binding screen sharing control socket to port {SERVER_SCREEN_PORT}...")
             self.screen_socket.bind((SERVER_HOST, SERVER_SCREEN_PORT))
             self.screen_socket.listen(MAX_USERS)
+            print(f"[{self.get_timestamp()}] Screen sharing control socket bound successfully")
+            
+            # Bind UDP socket for screen frame data
+            self.screen_udp_socket.bind((SERVER_HOST, SERVER_SCREEN_UDP_PORT))
             
             self.running = True
             
@@ -80,7 +89,8 @@ class VideoConferenceServer:
             print(f"[{self.get_timestamp()}] TCP Control Port: {SERVER_TCP_PORT}")
             print(f"[{self.get_timestamp()}] UDP Video Port: {SERVER_UDP_PORT}")
             print(f"[{self.get_timestamp()}] UDP Audio Port: {SERVER_AUDIO_PORT}")
-            print(f"[{self.get_timestamp()}] TCP Screen Sharing Port: {SERVER_SCREEN_PORT}")
+            print(f"[{self.get_timestamp()}] TCP Screen Sharing Control Port: {SERVER_SCREEN_PORT}")
+            print(f"[{self.get_timestamp()}] UDP Screen Sharing Data Port: {SERVER_SCREEN_UDP_PORT}")
             print(f"[{self.get_timestamp()}] Waiting for connections...")
             
             # Start UDP video receiver thread
@@ -91,9 +101,15 @@ class VideoConferenceServer:
             audio_thread = threading.Thread(target=self.receive_and_mix_audio, daemon=True)
             audio_thread.start()
             
-            # Start screen sharing receiver thread
-            screen_thread = threading.Thread(target=self.accept_screen_connections, daemon=True)
-            screen_thread.start()
+            # Start screen sharing control thread
+            screen_control_thread = threading.Thread(target=self.accept_screen_connections, daemon=True)
+            screen_control_thread.start()
+            print(f"[{self.get_timestamp()}] Screen control thread started: {screen_control_thread.is_alive()}")
+            
+            # Start screen sharing UDP receiver thread
+            screen_udp_thread = threading.Thread(target=self.receive_screen_streams, daemon=True)
+            screen_udp_thread.start()
+            print(f"[{self.get_timestamp()}] Screen UDP thread started: {screen_udp_thread.is_alive()}")
             
             # Start TCP connection acceptor
             self.accept_connections()
@@ -353,85 +369,173 @@ class VideoConferenceServer:
     
     def accept_screen_connections(self):
         """Accept screen sharing connections"""
-        print(f"[{self.get_timestamp()}] Screen sharing acceptor started")
+        print(f"[{self.get_timestamp()}] Screen sharing acceptor started on port {SERVER_SCREEN_PORT}")
+        print(f"[{self.get_timestamp()}] Socket listening: {self.screen_socket}")
         
         while self.running:
             try:
-                conn, addr = self.screen_socket.accept()
-                print(f"[{self.get_timestamp()}] Screen sharing connection from {addr}")
-                
-                # Start thread to handle this screen sharing connection
-                thread = threading.Thread(target=self.handle_screen_share, args=(conn, addr), daemon=True)
-                thread.start()
-                
+                print(f"[{self.get_timestamp()}] Waiting for screen sharing connection...")
+                self.screen_socket.settimeout(2.0)  # Add timeout so we can see the loop is running
+                try:
+                    conn, addr = self.screen_socket.accept()
+                    print(f"[{self.get_timestamp()}] *** SCREEN SHARING CONNECTION ACCEPTED from {addr} ***")
+                    
+                    # Start thread to handle this screen sharing connection
+                    thread = threading.Thread(target=self.handle_screen_share, args=(conn, addr), daemon=True)
+                    thread.start()
+                    print(f"[{self.get_timestamp()}] Handler thread started for {addr}")
+                except socket.timeout:
+                    # Timeout is normal, just loop again
+                    continue
+                    
             except Exception as e:
                 if self.running:
                     print(f"[{self.get_timestamp()}] Error accepting screen connection: {e}")
+                    import traceback
+                    traceback.print_exc()
     
     def handle_screen_share(self, conn, addr):
-        """Handle screen sharing stream from presenter"""
+        """Handle screen sharing control from presenter"""
+        client_id = None
         try:
+            print(f"[{self.get_timestamp()}] handle_screen_share called for {addr}")
+            
             # Receive client_id first
             client_id_data = conn.recv(4)
+            print(f"[{self.get_timestamp()}] Received {len(client_id_data)} bytes for client_id")
+            
             if len(client_id_data) < 4:
+                print(f"[{self.get_timestamp()}] Insufficient data for client_id, closing")
                 conn.close()
                 return
             
             client_id = struct.unpack('I', client_id_data)[0]
-            print(f"[{self.get_timestamp()}] Screen sharing from client {client_id}")
+            print(f"[{self.get_timestamp()}] Screen sharing request from client {client_id}")
             
             # Check if this client can be presenter
+            print(f"[{self.get_timestamp()}] Acquiring presenter_lock...")
             with self.presenter_lock:
+                print(f"[{self.get_timestamp()}] presenter_lock acquired. Current presenter_id: {self.presenter_id}")
+                
+                # Allow same client to reconnect (for restart), deny if different presenter exists
                 if self.presenter_id is not None and self.presenter_id != client_id:
                     # Another user is already presenting
-                    conn.send(b"DENIED")
+                    print(f"[{self.get_timestamp()}] Denying client {client_id} - presenter {self.presenter_id} exists")
+                    conn.sendall(b"DENIED")
                     conn.close()
-                    print(f"[{self.get_timestamp()}] Screen sharing denied for client {client_id} (presenter exists)")
+                    print(f"[{self.get_timestamp()}] DENIED sent and connection closed")
                     return
                 
+                # Clear old presenter status if reconnecting
+                if self.presenter_id == client_id:
+                    print(f"[{self.get_timestamp()}] Client {client_id} reconnecting as presenter")
+                
+                print(f"[{self.get_timestamp()}] Setting presenter_id to {client_id}")
                 self.presenter_id = client_id
-                conn.send(b"GRANTED")
-                print(f"[{self.get_timestamp()}] Client {client_id} is now the presenter")
+                print(f"[{self.get_timestamp()}] Sending GRANTED to client {client_id}")
                 
-                # Notify all clients about presenter change
-                self.broadcast_presenter_status()
+                try:
+                    conn.sendall(b"GRANTED")  # Use sendall to ensure it's sent
+                    print(f"[{self.get_timestamp()}] GRANTED sent, client {client_id} is now the presenter")
+                except Exception as send_err:
+                    print(f"[{self.get_timestamp()}] ERROR sending GRANTED: {send_err}")
+                    raise
             
-            # Receive and broadcast screen frames
+            print(f"[{self.get_timestamp()}] Released presenter_lock")
+            
+            # Notify all clients about presenter change (do this AFTER releasing the lock)
+            print(f"[{self.get_timestamp()}] Broadcasting presenter status...")
+            self.broadcast_presenter_status()
+            print(f"[{self.get_timestamp()}] Presenter status broadcast complete")
+            
+            # Keep connection alive - presenter will send frames via UDP
+            # This connection is just for control and to detect disconnection
             while self.running:
-                # Receive frame size (4 bytes)
-                size_data = self.recv_exact(conn, 4)
-                if not size_data:
+                try:
+                    conn.settimeout(0.5)  # Shorter timeout for faster response
+                    data = conn.recv(1024)
+                    if not data:
+                        print(f"[{self.get_timestamp()}] Client {client_id} disconnected (no data)")
+                        break
+                    
+                    # Handle STOP message - clear presenter IMMEDIATELY
+                    if b"STOP" in data:
+                        print(f"[{self.get_timestamp()}] Client {client_id} requested stop - clearing presenter immediately")
+                        # Clear presenter_id quickly WITHOUT broadcasting inside the lock
+                        with self.presenter_lock:
+                            if self.presenter_id == client_id:
+                                self.presenter_id = None
+                        print(f"[{self.get_timestamp()}] Presenter cleared, now broadcasting...")
+                        # Broadcast AFTER releasing the lock to avoid deadlock
+                        self.broadcast_presenter_status()
+                        print(f"[{self.get_timestamp()}] Client {client_id} STOP handled, breaking from loop")
+                        break
+                except socket.timeout:
+                    # Timeout is normal, just loop again
+                    continue
+                except Exception as e:
+                    print(f"[{self.get_timestamp()}] Error in screen share loop for client {client_id}: {e}")
                     break
-                
-                frame_size = struct.unpack('I', size_data)[0]
-                
-                if frame_size == 0 or frame_size > 10 * 1024 * 1024:  # Max 10MB per frame
-                    break
-                
-                # Receive frame data
-                frame_data = self.recv_exact(conn, frame_size)
-                if not frame_data:
-                    break
-                
-                # Store the screen frame
-                with self.screen_frame_lock:
-                    self.current_screen_frame = frame_data
-                
-                # Broadcast to all clients except the presenter
-                self.broadcast_screen_frame(client_id, frame_data)
             
         except Exception as e:
-            print(f"[{self.get_timestamp()}] Error in screen sharing: {e}")
+            print(f"[{self.get_timestamp()}] Error in screen sharing control: {e}")
+            import traceback
+            traceback.print_exc()
         
         finally:
-            # Clean up presenter status
-            with self.presenter_lock:
-                if self.presenter_id == client_id:
-                    self.presenter_id = None
-                    print(f"[{self.get_timestamp()}] Client {client_id} stopped presenting")
-                    self.broadcast_presenter_status()
+            print(f"[{self.get_timestamp()}] Entering finally block for client {client_id}")
+            # Clean up presenter status (only if this client was the presenter and not already cleared)
+            if client_id is not None:
+                print(f"[{self.get_timestamp()}] Attempting to acquire presenter_lock in finally for cleanup...")
+                with self.presenter_lock:
+                    print(f"[{self.get_timestamp()}] presenter_lock acquired in finally")
+                    if self.presenter_id == client_id:
+                        self.presenter_id = None
+                        print(f"[{self.get_timestamp()}] Client {client_id} stopped presenting - presenter_id cleared in finally")
+                        self.broadcast_presenter_status()
+                    else:
+                        if self.presenter_id is None:
+                            print(f"[{self.get_timestamp()}] Client {client_id} disconnected - presenter_id already cleared")
+                        else:
+                            print(f"[{self.get_timestamp()}] Client {client_id} disconnected but was not presenter (current: {self.presenter_id})")
+            else:
+                print(f"[{self.get_timestamp()}] Screen share connection closed before client_id received")
             
-            conn.close()
+            try:
+                conn.close()
+                print(f"[{self.get_timestamp()}] Connection closed for client {client_id}")
+            except:
+                pass
+            
+            print(f"[{self.get_timestamp()}] handle_screen_share EXITING for client {client_id}")
+    
+    def receive_screen_streams(self):
+        """Receive screen frames via UDP and broadcast to all clients"""
+        print(f"[{self.get_timestamp()}] Screen UDP receiver started")
+        
+        while self.running:
+            try:
+                # Receive screen frame packet
+                data, addr = self.screen_udp_socket.recvfrom(MAX_SCREEN_PACKET_SIZE)
+                
+                if len(data) < 4:
+                    continue
+                
+                # Extract client_id (first 4 bytes)
+                client_id = struct.unpack('I', data[:4])[0]
+                frame_data = data[4:]
+                
+                # Verify this is the current presenter
+                with self.presenter_lock:
+                    if self.presenter_id != client_id:
+                        continue  # Ignore frames from non-presenters
+                
+                # Broadcast to all clients
+                self.broadcast_screen_frame(client_id, data)  # Send whole packet with client_id
+                
+            except Exception as e:
+                if self.running:
+                    print(f"[{self.get_timestamp()}] Error receiving screen frame: {e}")
     
     def recv_exact(self, conn, n):
         """Receive exactly n bytes from connection"""
@@ -444,17 +548,13 @@ class VideoConferenceServer:
         return data
     
     def broadcast_screen_frame(self, presenter_id, frame_data):
-        """Broadcast screen frame to all clients except presenter"""
-        # Send via TCP control connection with special message format
-        # Format: SCREEN:<frame_size_hex>:<frame_data_hex>\n
-        frame_hex = frame_data.hex()
-        message = f"SCREEN:{len(frame_data)}:{frame_hex}\n"
-        
+        """Broadcast screen frame to all clients via UDP"""
         with self.clients_lock:
             for client_id, client_info in self.clients.items():
-                if client_id != presenter_id:
+                # Send to all clients including presenter (for their own preview)
+                if client_info['udp_address'] is not None:
                     try:
-                        client_info['tcp_conn'].send(message.encode('utf-8'))
+                        self.screen_udp_socket.sendto(frame_data, client_info['udp_address'])
                     except:
                         pass  # Client might have disconnected
     
