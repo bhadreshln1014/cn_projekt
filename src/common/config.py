@@ -10,11 +10,19 @@ SERVER_AUDIO_PORT = 5002  # For audio streaming
 SERVER_SCREEN_PORT = 5003 # For screen sharing control (TCP)
 SERVER_SCREEN_UDP_PORT = 5004 # For screen frame data (UDP)
 SERVER_CHAT_PORT = 5000   # Chat uses same TCP connection as control messages
+SERVER_FILE_PORT = 5005   # For file transfer (TCP)
 
 # Message Types
 MSG_CHAT = "CHAT_MESSAGE"
 MSG_CHAT_HISTORY = "CHAT_HISTORY"
 MSG_PRIVATE_CHAT = "PRIVATE_CHAT"
+MSG_FILE_OFFER = "FILE_OFFER"
+MSG_FILE_REQUEST = "FILE_REQUEST"
+MSG_FILE_DATA = "FILE_DATA"
+
+# File Transfer Configuration
+FILE_CHUNK_SIZE = 8192    # Size of each file chunk (8KB)
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB max file size
 
 # Video Configuration
 VIDEO_WIDTH = 640

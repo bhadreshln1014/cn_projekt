@@ -16,6 +16,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 import mss
+import os
 
 import sys
 import os
@@ -778,6 +779,35 @@ class VideoConferenceClient:
                         except Exception as e:
                             print(f"[{self.get_timestamp()}] Error handling private chat message: {e}")
                     
+                    elif message.startswith("FILE_OFFER:"):
+                        # File available for download: FILE_OFFER:file_id:filename:filesize:uploader_name
+                        try:
+                            parts = message.split(":", 4)
+                            if len(parts) >= 5:
+                                file_id = int(parts[1])
+                                filename = parts[2]
+                                filesize = int(parts[3])
+                                uploader_name = parts[4]
+                                
+                                # Store metadata
+                                self.shared_files_metadata[file_id] = {
+                                    'filename': filename,
+                                    'size': filesize,
+                                    'uploader': uploader_name
+                                }
+                                
+                                # Update file list (must be in main thread)
+                                self.root.after(0, self.update_file_list)
+                                
+                                # Show notification in chat
+                                size_mb = filesize / (1024 * 1024)
+                                notification = f"📁 {uploader_name} shared a file: {filename} ({size_mb:.2f} MB)"
+                                self.root.after(0, lambda: self.display_chat_message(
+                                    "System", self.get_timestamp(), notification, is_system=True
+                                ))
+                        except Exception as e:
+                            print(f"[{self.get_timestamp()}] Error handling file offer: {e}")
+                    
                     elif message.startswith("PRESENTER:"):
                         # Update presenter status
                         presenter_data = message.split(":", 1)[1]
@@ -1044,6 +1074,37 @@ class VideoConferenceClient:
         send_btn = ttk.Button(chat_input_frame, text="Send", command=self.send_chat_message, width=8)
         send_btn.pack(side=tk.RIGHT)
         
+        # File sharing section
+        file_section = ttk.LabelFrame(chat_container, text="📁 Shared Files", padding=5)
+        file_section.pack(side=tk.BOTTOM, fill=tk.BOTH, padx=5, pady=(0, 5))
+        
+        # File upload button
+        upload_btn = ttk.Button(file_section, text="📤 Upload File", command=self.upload_file)
+        upload_btn.pack(fill=tk.X, pady=(0, 5))
+        
+        # File list with scrollbar
+        file_list_frame = ttk.Frame(file_section)
+        file_list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        file_scrollbar = ttk.Scrollbar(file_list_frame)
+        file_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.file_listbox = tk.Listbox(
+            file_list_frame,
+            yscrollcommand=file_scrollbar.set,
+            height=5,
+            font=("Arial", 9)
+        )
+        self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        file_scrollbar.config(command=self.file_listbox.yview)
+        
+        # Download button
+        download_btn = ttk.Button(file_section, text="📥 Download Selected", command=self.download_file)
+        download_btn.pack(fill=tk.X, pady=(5, 0))
+        
+        # Store file metadata: {file_id: {'filename': name, 'size': size, 'uploader': name}}
+        self.shared_files_metadata = {}
+        
         # Create initial video grid (will be dynamic)
         self.create_video_grid()
         
@@ -1231,6 +1292,211 @@ class VideoConferenceClient:
                 self.selected_recipients = []
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error updating recipient list: {e}")
+    
+    def upload_file(self):
+        """Upload a file to share with other users"""
+        if not self.connected:
+            messagebox.showwarning("Not Connected", "Please connect to the server first.")
+            return
+        
+        # Open file dialog
+        from tkinter import filedialog
+        filepath = filedialog.askopenfilename(title="Select File to Share")
+        
+        if not filepath:
+            return
+        
+        try:
+            import os
+            filename = os.path.basename(filepath)
+            filesize = os.path.getsize(filepath)
+            
+            # Check file size
+            if filesize > MAX_FILE_SIZE:
+                messagebox.showerror("File Too Large", 
+                                   f"File size ({filesize / (1024*1024):.2f} MB) exceeds maximum allowed size ({MAX_FILE_SIZE / (1024*1024):.0f} MB).")
+                return
+            
+            # Show progress dialog
+            progress_dialog = tk.Toplevel(self.root)
+            progress_dialog.title("Uploading File")
+            progress_dialog.geometry("400x150")
+            progress_dialog.resizable(False, False)
+            progress_dialog.transient(self.root)
+            
+            ttk.Label(progress_dialog, text=f"Uploading: {filename}", 
+                     font=("Arial", 10, "bold")).pack(pady=10)
+            
+            progress_var = tk.DoubleVar()
+            progress_bar = ttk.Progressbar(progress_dialog, variable=progress_var, maximum=100)
+            progress_bar.pack(fill=tk.X, padx=20, pady=10)
+            
+            status_label = ttk.Label(progress_dialog, text="0%")
+            status_label.pack()
+            
+            # Upload in background thread
+            def do_upload():
+                try:
+                    # Connect to file transfer port
+                    file_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    file_sock.connect((self.server_address, SERVER_FILE_PORT))
+                    
+                    # Send upload command
+                    command = f"UPLOAD:{self.client_id}:{filename}:{filesize}"
+                    file_sock.send(command.encode('utf-8'))
+                    
+                    # Send file data
+                    with open(filepath, 'rb') as f:
+                        sent = 0
+                        while sent < filesize:
+                            chunk = f.read(FILE_CHUNK_SIZE)
+                            if not chunk:
+                                break
+                            file_sock.sendall(chunk)
+                            sent += len(chunk)
+                            
+                            # Update progress
+                            percent = (sent / filesize) * 100
+                            self.root.after(0, lambda p=percent: progress_var.set(p))
+                            self.root.after(0, lambda p=percent: status_label.config(text=f"{p:.1f}%"))
+                    
+                    # Wait for response
+                    response = file_sock.recv(1024).decode('utf-8')
+                    file_sock.close()
+                    
+                    if response.startswith("SUCCESS"):
+                        self.root.after(0, progress_dialog.destroy)
+                        self.root.after(0, lambda: messagebox.showinfo("Success", f"File '{filename}' uploaded successfully!"))
+                    else:
+                        self.root.after(0, progress_dialog.destroy)
+                        self.root.after(0, lambda: messagebox.showerror("Upload Failed", "File upload failed on server."))
+                    
+                except Exception as e:
+                    print(f"[{self.get_timestamp()}] Error uploading file: {e}")
+                    self.root.after(0, progress_dialog.destroy)
+                    self.root.after(0, lambda: messagebox.showerror("Upload Error", f"Failed to upload file: {e}"))
+            
+            threading.Thread(target=do_upload, daemon=True).start()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to upload file: {e}")
+    
+    def download_file(self):
+        """Download the selected file"""
+        if not self.connected:
+            messagebox.showwarning("Not Connected", "Please connect to the server first.")
+            return
+        
+        # Get selected file
+        selection = self.file_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select a file to download.")
+            return
+        
+        idx = selection[0]
+        file_text = self.file_listbox.get(idx)
+        
+        # Extract file_id from the text (format: "filename (size) - uploader [ID: file_id]")
+        try:
+            file_id = int(file_text.split("[ID: ")[1].rstrip("]"))
+            file_info = self.shared_files_metadata[file_id]
+            filename = file_info['filename']
+            filesize = file_info['size']
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to get file info: {e}")
+            return
+        
+        # Choose save location
+        from tkinter import filedialog
+        save_path = filedialog.asksaveasfilename(
+            title="Save File As",
+            initialfile=filename,
+            defaultextension=os.path.splitext(filename)[1]
+        )
+        
+        if not save_path:
+            return
+        
+        # Show progress dialog
+        progress_dialog = tk.Toplevel(self.root)
+        progress_dialog.title("Downloading File")
+        progress_dialog.geometry("400x150")
+        progress_dialog.resizable(False, False)
+        progress_dialog.transient(self.root)
+        
+        ttk.Label(progress_dialog, text=f"Downloading: {filename}", 
+                 font=("Arial", 10, "bold")).pack(pady=10)
+        
+        progress_var = tk.DoubleVar()
+        progress_bar = ttk.Progressbar(progress_dialog, variable=progress_var, maximum=100)
+        progress_bar.pack(fill=tk.X, padx=20, pady=10)
+        
+        status_label = ttk.Label(progress_dialog, text="0%")
+        status_label.pack()
+        
+        # Download in background thread
+        def do_download():
+            try:
+                # Connect to file transfer port
+                file_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                file_sock.connect((self.server_address, SERVER_FILE_PORT))
+                
+                # Send download request
+                command = f"DOWNLOAD:{file_id}"
+                file_sock.send(command.encode('utf-8'))
+                
+                # Receive file info
+                response = file_sock.recv(1024).decode('utf-8')
+                if response.startswith("FILE:"):
+                    # Receive file data
+                    with open(save_path, 'wb') as f:
+                        received = 0
+                        while received < filesize:
+                            chunk_size = min(FILE_CHUNK_SIZE, filesize - received)
+                            chunk = file_sock.recv(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            received += len(chunk)
+                            
+                            # Update progress
+                            percent = (received / filesize) * 100
+                            self.root.after(0, lambda p=percent: progress_var.set(p))
+                            self.root.after(0, lambda p=percent: status_label.config(text=f"{p:.1f}%"))
+                    
+                    file_sock.close()
+                    
+                    if received == filesize:
+                        self.root.after(0, progress_dialog.destroy)
+                        self.root.after(0, lambda: messagebox.showinfo("Success", f"File '{filename}' downloaded successfully!"))
+                    else:
+                        self.root.after(0, progress_dialog.destroy)
+                        self.root.after(0, lambda: messagebox.showerror("Download Failed", "File download incomplete."))
+                else:
+                    file_sock.close()
+                    self.root.after(0, progress_dialog.destroy)
+                    self.root.after(0, lambda: messagebox.showerror("Download Failed", "File not found on server."))
+                    
+            except Exception as e:
+                print(f"[{self.get_timestamp()}] Error downloading file: {e}")
+                self.root.after(0, progress_dialog.destroy)
+                self.root.after(0, lambda: messagebox.showerror("Download Error", f"Failed to download file: {e}"))
+        
+        threading.Thread(target=do_download, daemon=True).start()
+    
+    def update_file_list(self):
+        """Update the file listbox with available files"""
+        self.file_listbox.delete(0, tk.END)
+        
+        for file_id, info in self.shared_files_metadata.items():
+            filename = info['filename']
+            size_mb = info['size'] / (1024 * 1024)
+            uploader = info['uploader']
+            
+            # Format: "filename (size) - uploader [ID: file_id]"
+            display_text = f"{filename} ({size_mb:.2f} MB) - {uploader} [ID: {file_id}]"
+            self.file_listbox.insert(tk.END, display_text)
     
     def toggle_screen_sharing(self):
         """Toggle screen sharing on/off"""

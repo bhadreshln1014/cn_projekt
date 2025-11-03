@@ -63,6 +63,15 @@ class VideoConferenceServer:
         self.chat_history = []
         self.chat_lock = threading.Lock()
         
+        # File sharing: {file_id: {'filename': name, 'size': bytes, 'uploader_id': id, 'uploader_name': name, 'data': bytes, 'timestamp': time}}
+        self.shared_files = {}
+        self.file_id_counter = 0
+        self.files_lock = threading.Lock()
+        
+        # TCP socket for file transfers
+        self.file_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.file_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
         self.running = False
         
     def start(self):
@@ -87,6 +96,10 @@ class VideoConferenceServer:
             # Bind UDP socket for screen frame data
             self.screen_udp_socket.bind((SERVER_HOST, SERVER_SCREEN_UDP_PORT))
             
+            # Bind TCP socket for file transfers
+            self.file_socket.bind((SERVER_HOST, SERVER_FILE_PORT))
+            self.file_socket.listen(MAX_USERS)
+            
             self.running = True
             
             print(f"[{self.get_timestamp()}] Server started")
@@ -95,6 +108,7 @@ class VideoConferenceServer:
             print(f"[{self.get_timestamp()}] UDP Audio Port: {SERVER_AUDIO_PORT}")
             print(f"[{self.get_timestamp()}] TCP Screen Sharing Control Port: {SERVER_SCREEN_PORT}")
             print(f"[{self.get_timestamp()}] UDP Screen Sharing Data Port: {SERVER_SCREEN_UDP_PORT}")
+            print(f"[{self.get_timestamp()}] TCP File Transfer Port: {SERVER_FILE_PORT}")
             print(f"[{self.get_timestamp()}] Waiting for connections...")
             
             # Start UDP video receiver thread
@@ -109,6 +123,10 @@ class VideoConferenceServer:
             screen_control_thread = threading.Thread(target=self.accept_screen_connections, daemon=True)
             screen_control_thread.start()
             print(f"[{self.get_timestamp()}] Screen control thread started: {screen_control_thread.is_alive()}")
+            
+            # Start file transfer thread
+            file_thread = threading.Thread(target=self.accept_file_connections, daemon=True)
+            file_thread.start()
             
             # Start screen sharing UDP receiver thread
             screen_udp_thread = threading.Thread(target=self.receive_screen_streams, daemon=True)
@@ -441,6 +459,131 @@ class VideoConferenceServer:
         
         recipient_names = [self.clients.get(rid, {}).get('username', f'User{rid}') for rid in recipient_ids]
         print(f"[{timestamp}] Private chat from {sender_username} to {', '.join(recipient_names)}: {message}")
+    
+    def accept_file_connections(self):
+        """Accept file transfer connections"""
+        print(f"[{self.get_timestamp()}] File transfer acceptor started on port {SERVER_FILE_PORT}")
+        
+        while self.running:
+            try:
+                self.file_socket.settimeout(2.0)
+                try:
+                    conn, addr = self.file_socket.accept()
+                    print(f"[{self.get_timestamp()}] File transfer connection from {addr}")
+                    
+                    # Start thread to handle this file transfer
+                    thread = threading.Thread(target=self.handle_file_transfer, args=(conn, addr), daemon=True)
+                    thread.start()
+                except socket.timeout:
+                    continue
+                    
+            except Exception as e:
+                if self.running:
+                    print(f"[{self.get_timestamp()}] Error in file acceptor: {e}")
+                break
+    
+    def handle_file_transfer(self, conn, address):
+        """Handle file upload or download"""
+        try:
+            # Receive command: UPLOAD or DOWNLOAD:file_id
+            command = conn.recv(1024).decode('utf-8').strip()
+            
+            if command.startswith("UPLOAD:"):
+                # Format: UPLOAD:client_id:filename:filesize
+                parts = command.split(":", 3)
+                if len(parts) >= 4:
+                    client_id = int(parts[1])
+                    filename = parts[2]
+                    filesize = int(parts[3])
+                    
+                    print(f"[{self.get_timestamp()}] Receiving file '{filename}' ({filesize} bytes) from client {client_id}")
+                    
+                    # Receive file data
+                    file_data = b''
+                    remaining = filesize
+                    
+                    while remaining > 0:
+                        chunk_size = min(FILE_CHUNK_SIZE, remaining)
+                        chunk = conn.recv(chunk_size)
+                        if not chunk:
+                            break
+                        file_data += chunk
+                        remaining -= len(chunk)
+                    
+                    if len(file_data) == filesize:
+                        # Store file
+                        with self.files_lock:
+                            file_id = self.file_id_counter
+                            self.file_id_counter += 1
+                            
+                            uploader_name = self.clients.get(client_id, {}).get('username', f'User{client_id}')
+                            
+                            self.shared_files[file_id] = {
+                                'filename': filename,
+                                'size': filesize,
+                                'uploader_id': client_id,
+                                'uploader_name': uploader_name,
+                                'data': file_data,
+                                'timestamp': self.get_timestamp()
+                            }
+                        
+                        # Send success response
+                        conn.send(f"SUCCESS:{file_id}".encode('utf-8'))
+                        
+                        # Broadcast file availability to all clients
+                        self.broadcast_file_offer(file_id, filename, filesize, uploader_name)
+                        
+                        print(f"[{self.get_timestamp()}] File '{filename}' stored with ID {file_id}")
+                    else:
+                        conn.send("ERROR:Incomplete file".encode('utf-8'))
+                        print(f"[{self.get_timestamp()}] File upload failed: incomplete data")
+                        
+            elif command.startswith("DOWNLOAD:"):
+                # Format: DOWNLOAD:file_id
+                file_id = int(command.split(":", 1)[1])
+                
+                with self.files_lock:
+                    if file_id in self.shared_files:
+                        file_info = self.shared_files[file_id]
+                        filename = file_info['filename']
+                        filesize = file_info['size']
+                        file_data = file_info['data']
+                        
+                        # Send file info
+                        conn.send(f"FILE:{filename}:{filesize}\n".encode('utf-8'))
+                        
+                        # Send file data in chunks
+                        offset = 0
+                        while offset < filesize:
+                            chunk_size = min(FILE_CHUNK_SIZE, filesize - offset)
+                            chunk = file_data[offset:offset + chunk_size]
+                            conn.sendall(chunk)
+                            offset += chunk_size
+                        
+                        print(f"[{self.get_timestamp()}] Sent file '{filename}' (ID: {file_id})")
+                    else:
+                        conn.send("ERROR:File not found\n".encode('utf-8'))
+                        
+        except Exception as e:
+            print(f"[{self.get_timestamp()}] Error in file transfer handler: {e}")
+        finally:
+            try:
+                conn.close()
+            except:
+                pass
+    
+    def broadcast_file_offer(self, file_id, filename, filesize, uploader_name):
+        """Broadcast file availability to all clients"""
+        message = f"FILE_OFFER:{file_id}:{filename}:{filesize}:{uploader_name}\n"
+        
+        with self.clients_lock:
+            for client_id, client_info in self.clients.items():
+                try:
+                    client_info['tcp_conn'].send(message.encode('utf-8'))
+                except Exception as e:
+                    print(f"[{self.get_timestamp()}] Error broadcasting file offer to client {client_id}: {e}")
+        
+        print(f"[{self.get_timestamp()}] Broadcasted file offer: {filename} from {uploader_name}")
     
     def accept_screen_connections(self):
         """Accept screen sharing connections"""
