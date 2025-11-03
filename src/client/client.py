@@ -25,7 +25,15 @@ from PyQt6.QtWidgets import (
     QFileDialog, QScrollArea, QGroupBox, QListWidgetItem, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread, QSize
-from PyQt6.QtGui import QPixmap, QImage, QFont, QColor, QPalette
+from PyQt6.QtGui import QPixmap, QImage, QFont, QColor, QPalette, QIcon
+
+# Try to import qtawesome for Material Design icons
+try:
+    import qtawesome as qta
+    HAS_QTAWESOME = True
+except ImportError:
+    HAS_QTAWESOME = False
+    print("QtAwesome not installed. Using emoji icons. Install with: pip install qtawesome")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -908,6 +916,35 @@ class VideoConferenceClient(QMainWindow):
                 if self.connected:
                     print(f"[{self.get_timestamp()}] Error receiving video stream: {e}")
     
+    def get_icon(self, icon_name, color='#e8eaed', size=None):
+        """Get Material Design icon using qtawesome or fallback to text"""
+        if HAS_QTAWESOME:
+            # Material Design icon names
+            icon_map = {
+                'mic': 'mdi.microphone',
+                'mic_off': 'mdi.microphone-off',
+                'videocam': 'mdi.video',
+                'videocam_off': 'mdi.video-off',
+                'screen_share': 'mdi.monitor',
+                'call_end': 'mdi.phone-hangup',
+                'chat': 'mdi.message-text',
+                'people': 'mdi.account-group',
+                'attach_file': 'mdi.folder',
+                'settings': 'mdi.cog',
+                'close': 'mdi.close',
+                'send': 'mdi.send',
+                'download': 'mdi.download',
+                'delete': 'mdi.delete',
+                'refresh': 'mdi.refresh',
+            }
+            mdi_name = icon_map.get(icon_name, 'mdi.help-circle')
+            try:
+                return qta.icon(mdi_name, color=color)
+            except:
+                # Fallback if icon not found
+                return None
+        return None
+    
     def create_gui(self):
         """Create the GUI"""
         # Set window properties
@@ -1273,12 +1310,14 @@ class VideoConferenceClient(QMainWindow):
             }
         """)
         bottom_bar_layout = QHBoxLayout(bottom_bar)
-        bottom_bar_layout.setContentsMargins(20, 10, 20, 10)
+        bottom_bar_layout.setContentsMargins(20, 0, 20, 0)  # Remove vertical padding for centering
+        bottom_bar_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center horizontally
         
         # Left side - Meeting info
         info_label = QLabel()
         info_label.setFont(QFont("Arial", 9))
         info_label.setStyleSheet("color: #e8eaed;")
+        info_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)  # Align vertically center
         self.meeting_info_label = info_label
         bottom_bar_layout.addWidget(info_label)
         
@@ -1288,26 +1327,34 @@ class VideoConferenceClient(QMainWindow):
         controls_widget = QWidget()
         controls_layout = QHBoxLayout(controls_widget)
         controls_layout.setSpacing(10)
+        controls_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)  # Center the buttons
         
         # Microphone button
         self.mic_btn = QPushButton()
         self.mic_btn.setCheckable(True)
         self.mic_btn.setChecked(True)
-        self.mic_btn.setIcon(self.mic_btn.style().standardIcon(self.mic_btn.style().StandardPixmap.SP_MediaPlay))
-        self.mic_btn.setText("🎤")
-        self.mic_btn.setFont(QFont("Arial", 20))
+        mic_icon = self.get_icon('mic', '#e8eaed')
+        if mic_icon:
+            self.mic_btn.setIcon(mic_icon)
+            self.mic_btn.setIconSize(QSize(24, 24))
+        else:
+            self.mic_btn.setText("🎤")
+            self.mic_btn.setFont(QFont("Arial", 20))
         self.mic_btn.setFixedSize(50, 50)
         self.mic_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3c4043;
+                background-color: #ea4335;
                 border-radius: 25px;
                 border: none;
             }
             QPushButton:hover {
-                background-color: #5f6368;
+                background-color: #c5341c;
             }
             QPushButton:checked {
-                background-color: #ea4335;
+                background-color: #3c4043;
+            }
+            QPushButton:checked:hover {
+                background-color: #5f6368;
             }
         """)
         self.mic_btn.toggled.connect(self.toggle_microphone)
@@ -1317,20 +1364,28 @@ class VideoConferenceClient(QMainWindow):
         self.camera_btn = QPushButton()
         self.camera_btn.setCheckable(True)
         self.camera_btn.setChecked(True)
-        self.camera_btn.setText("📹")
-        self.camera_btn.setFont(QFont("Arial", 20))
+        cam_icon = self.get_icon('videocam', '#e8eaed')
+        if cam_icon:
+            self.camera_btn.setIcon(cam_icon)
+            self.camera_btn.setIconSize(QSize(24, 24))
+        else:
+            self.camera_btn.setText("📹")
+            self.camera_btn.setFont(QFont("Arial", 20))
         self.camera_btn.setFixedSize(50, 50)
         self.camera_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3c4043;
+                background-color: #ea4335;
                 border-radius: 25px;
                 border: none;
             }
             QPushButton:hover {
-                background-color: #5f6368;
+                background-color: #c5341c;
             }
             QPushButton:checked {
-                background-color: #ea4335;
+                background-color: #3c4043;
+            }
+            QPushButton:checked:hover {
+                background-color: #5f6368;
             }
         """)
         self.camera_btn.toggled.connect(self.toggle_self_video)
@@ -1339,28 +1394,42 @@ class VideoConferenceClient(QMainWindow):
         # Screen share button - use monitor symbol
         self.share_screen_btn = QPushButton()
         self.share_screen_btn.setCheckable(True)
-        self.share_screen_btn.setText("�")  # Monitor symbol
-        self.share_screen_btn.setFont(QFont("Arial", 20))
+        screen_icon = self.get_icon('screen_share', '#e8eaed')
+        if screen_icon:
+            self.share_screen_btn.setIcon(screen_icon)
+            self.share_screen_btn.setIconSize(QSize(24, 24))
+        else:
+            self.share_screen_btn.setText("🖥")
+            self.share_screen_btn.setFont(QFont("Arial", 20))
         self.share_screen_btn.setFixedSize(50, 50)
         self.share_screen_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3c4043;
+                background-color: #ea4335;
                 border-radius: 25px;
                 border: none;
             }
             QPushButton:hover {
-                background-color: #5f6368;
+                background-color: #c5341c;
             }
             QPushButton:checked {
-                background-color: #1a73e8;
+                background-color: #3c4043;
+            }
+            QPushButton:checked:hover {
+                background-color: #5f6368;
             }
         """)
         self.share_screen_btn.toggled.connect(self.toggle_screen_sharing)
         controls_layout.addWidget(self.share_screen_btn)
         
         # Leave call button
-        leave_btn = QPushButton("📞")
-        leave_btn.setFont(QFont("Arial", 20))
+        leave_btn = QPushButton()
+        leave_icon = self.get_icon('call_end', '#ffffff')
+        if leave_icon:
+            leave_btn.setIcon(leave_icon)
+            leave_btn.setIconSize(QSize(24, 24))
+        else:
+            leave_btn.setText("📞")
+            leave_btn.setFont(QFont("Arial", 20))
         leave_btn.setFixedSize(50, 50)
         leave_btn.setStyleSheet("""
             QPushButton {
@@ -1385,8 +1454,14 @@ class VideoConferenceClient(QMainWindow):
         right_controls_layout.setSpacing(8)
         
         # People panel toggle
-        people_btn = QPushButton("👥")
-        people_btn.setFont(QFont("Arial", 16))
+        people_btn = QPushButton()
+        people_icon = self.get_icon('people', '#e8eaed')
+        if people_icon:
+            people_btn.setIcon(people_icon)
+            people_btn.setIconSize(QSize(20, 20))
+        else:
+            people_btn.setText("👥")
+            people_btn.setFont(QFont("Arial", 16))
         people_btn.setFixedSize(40, 40)
         people_btn.setStyleSheet("""
             QPushButton {
@@ -1404,8 +1479,14 @@ class VideoConferenceClient(QMainWindow):
         right_controls_layout.addWidget(people_btn)
         
         # Chat panel toggle
-        chat_btn = QPushButton("💬")
-        chat_btn.setFont(QFont("Arial", 16))
+        chat_btn = QPushButton()
+        chat_icon = self.get_icon('chat', '#e8eaed')
+        if chat_icon:
+            chat_btn.setIcon(chat_icon)
+            chat_btn.setIconSize(QSize(20, 20))
+        else:
+            chat_btn.setText("💬")
+            chat_btn.setFont(QFont("Arial", 16))
         chat_btn.setFixedSize(40, 40)
         chat_btn.setStyleSheet("""
             QPushButton {
@@ -1423,8 +1504,14 @@ class VideoConferenceClient(QMainWindow):
         right_controls_layout.addWidget(chat_btn)
         
         # File panel toggle
-        file_btn = QPushButton("📁")
-        file_btn.setFont(QFont("Arial", 16))
+        file_btn = QPushButton()
+        file_icon = self.get_icon('attach_file', '#e8eaed')
+        if file_icon:
+            file_btn.setIcon(file_icon)
+            file_btn.setIconSize(QSize(20, 20))
+        else:
+            file_btn.setText("📁")
+            file_btn.setFont(QFont("Arial", 16))
         file_btn.setFixedSize(40, 40)
         file_btn.setStyleSheet("""
             QPushButton {
@@ -1442,8 +1529,14 @@ class VideoConferenceClient(QMainWindow):
         right_controls_layout.addWidget(file_btn)
         
         # Settings button
-        settings_btn = QPushButton("⚙️")
-        settings_btn.setFont(QFont("Arial", 16))
+        settings_btn = QPushButton()
+        settings_icon = self.get_icon('settings', '#e8eaed')
+        if settings_icon:
+            settings_btn.setIcon(settings_icon)
+            settings_btn.setIconSize(QSize(20, 20))
+        else:
+            settings_btn.setText("⚙️")
+            settings_btn.setFont(QFont("Arial", 16))
         settings_btn.setFixedSize(40, 40)
         settings_btn.setStyleSheet("""
             QPushButton {
@@ -1488,7 +1581,7 @@ class VideoConferenceClient(QMainWindow):
         
         chat_title = QLabel("Messages")
         chat_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        chat_title.setStyleSheet("color: #e8eaed;")
+        chat_title.setStyleSheet("color: #e8eaed; border: none; background-color: transparent;")
         chat_header_layout.addWidget(chat_title)
         
         chat_header_layout.addStretch()
@@ -1617,9 +1710,15 @@ class VideoConferenceClient(QMainWindow):
         self.chat_input.returnPressed.connect(self.send_chat_message)
         message_input_layout.addWidget(self.chat_input, stretch=1)
         
-        send_btn = QPushButton("➤")
+        send_btn = QPushButton()
+        send_icon = self.get_icon('send', '#ffffff')
+        if send_icon:
+            send_btn.setIcon(send_icon)
+            send_btn.setIconSize(QSize(20, 20))
+        else:
+            send_btn.setText("➤")
+            send_btn.setFont(QFont("Arial", 16))
         send_btn.setFixedSize(40, 40)
-        send_btn.setFont(QFont("Arial", 16))
         send_btn.setStyleSheet("""
             QPushButton {
                 background-color: #1a73e8;
@@ -1663,7 +1762,7 @@ class VideoConferenceClient(QMainWindow):
         
         file_title = QLabel("Shared Files")
         file_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        file_title.setStyleSheet("color: #e8eaed;")
+        file_title.setStyleSheet("color: #e8eaed; border: none; background-color: transparent;")
         file_header_layout.addWidget(file_title)
         
         file_header_layout.addStretch()
@@ -1810,14 +1909,14 @@ class VideoConferenceClient(QMainWindow):
         
         people_title = QLabel("Participants")
         people_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        people_title.setStyleSheet("color: #e8eaed;")
+        people_title.setStyleSheet("color: #e8eaed; border: none; background-color: transparent;")
         people_header_layout.addWidget(people_title)
         
         people_header_layout.addStretch()
         
         self.people_count_label = QLabel("0")
         self.people_count_label.setFont(QFont("Arial", 12))
-        self.people_count_label.setStyleSheet("color: #e8eaed;")
+        self.people_count_label.setStyleSheet("color: #e8eaed; border: none; background-color: transparent;")
         people_header_layout.addWidget(self.people_count_label)
         
         close_people_btn = QPushButton("✕")
@@ -1900,7 +1999,7 @@ class VideoConferenceClient(QMainWindow):
         
         settings_title = QLabel("Settings")
         settings_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-        settings_title.setStyleSheet("color: #e8eaed;")
+        settings_title.setStyleSheet("color: #e8eaed; border: none; background-color: transparent;")
         settings_header_layout.addWidget(settings_title)
         
         settings_header_layout.addStretch()
@@ -2147,11 +2246,9 @@ class VideoConferenceClient(QMainWindow):
         self.show_self_video = self.camera_btn.isChecked()
         if self.show_self_video:
             # Turn video ON - start capturing and transmitting
-            self.mic_btn.setText("📹")
             self.start_video_capture()
         else:
             # Turn video OFF - stop capturing and transmitting
-            self.camera_btn.setText("📹")
             self.stop_video_capture()
     
     def toggle_microphone(self):
@@ -2159,11 +2256,9 @@ class VideoConferenceClient(QMainWindow):
         self.microphone_on = self.mic_btn.isChecked()
         if self.microphone_on:
             # Turn microphone ON
-            self.mic_btn.setText("🎤")
             self.start_audio_capture()
         else:
             # Turn microphone OFF
-            self.mic_btn.setText("🎤")
             self.stop_audio_capture()
     
     def toggle_speaker(self):
@@ -2310,6 +2405,10 @@ class VideoConferenceClient(QMainWindow):
     def update_recipient_list(self):
         """Update the recipient dropdown with current users and participants list"""
         try:
+            # Safety check - ensure GUI is initialized
+            if not hasattr(self, 'recipient_combo'):
+                return
+                
             current_selection = self.recipient_combo.currentText()
             
             # Build list of recipients
@@ -2748,10 +2847,7 @@ class VideoConferenceClient(QMainWindow):
             # Start screen sharing in background thread to avoid blocking GUI
             def start_in_background():
                 try:
-                    if self.start_screen_sharing():
-                        # Update button on success (must be done in main thread)
-                        QTimer.singleShot(0, lambda: self.share_screen_btn.setText("🛑 Stop Sharing"))
-                    else:
+                    if not self.start_screen_sharing():
                         # Revert on failure
                         QTimer.singleShot(0, lambda: QMessageBox.warning(self, "Screen Sharing", 
                                                                           "Could not start screen sharing. Another user may be presenting."))
@@ -2766,13 +2862,11 @@ class VideoConferenceClient(QMainWindow):
             def stop_in_background():
                 try:
                     self.stop_screen_sharing()
-                    QTimer.singleShot(0, lambda: self.share_screen_btn.setText("🖥️ Share Screen"))
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error in stop_in_background: {e}")
             
             threading.Thread(target=stop_in_background, daemon=True).start()
             self.is_presenting = False
-            self.share_screen_btn.setText("🖥️ Share Screen")  # Update immediately
     
     def change_layout(self, event=None):
         """Change video layout mode (Google Meet style)"""
@@ -2869,7 +2963,7 @@ class VideoConferenceClient(QMainWindow):
                 video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 video_label.setStyleSheet("background-color: black; color: white;")
                 video_label.setMinimumSize(160, 120)  # Minimum size in pixels
-                video_label.setScaledContents(False)  # We'll handle scaling ourselves
+                video_label.setScaledContents(True)  # Scale pixmap to fit label
                 container_layout.addWidget(video_label, stretch=1)
                 
                 grid_layout.addWidget(container, row, col)
@@ -2953,7 +3047,7 @@ class VideoConferenceClient(QMainWindow):
         video_label.setStyleSheet("background-color: black; color: white;")
         video_label.setMinimumSize(80, 60)
         video_label.setMaximumSize(200, 150)
-        video_label.setScaledContents(False)
+        video_label.setScaledContents(True)  # Scale pixmap to fit label
         layout.addWidget(video_label, stretch=1)
         
         # Store reference for updates
@@ -3093,7 +3187,6 @@ class VideoConferenceClient(QMainWindow):
                         
                         label_info['video'].setPixmap(pixmap)
                         label_info['video'].setText("")
-                        label_info['video'].setFixedSize(video_width, video_height)
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error displaying tile: {e}")
                 
