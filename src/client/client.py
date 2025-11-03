@@ -93,6 +93,12 @@ class VideoConferenceClient(QMainWindow):
         self.speaker_on = None  # Will be BooleanVar
         self.current_layout = "auto"  # auto, 1x1, 2x2, 3x3, 4x4
         
+        # Google Meet-style panel visibility
+        self.chat_panel_visible = False
+        self.file_panel_visible = False
+        self.people_panel_visible = False
+        self.settings_panel_visible = False
+        
     def connect_to_server(self, server_ip, username):
         """Connect to the server"""
         try:
@@ -1160,119 +1166,49 @@ class VideoConferenceClient(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        # Google Meet-style layout: Main content + side panels + bottom controls
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
-        # Top bar with connection info and controls
-        top_frame = QWidget()
-        top_layout = QHBoxLayout(top_frame)
-        top_layout.setContentsMargins(0, 0, 0, 10)
+        # Main video content area (always visible)
+        self.main_content_widget = QWidget()
+        main_content_layout = QVBoxLayout(self.main_content_widget)
+        main_content_layout.setContentsMargins(0, 0, 0, 0)
+        main_content_layout.setSpacing(0)
         
-        # Status label
-        self.status_label = QLabel("Not Connected")
-        self.status_label.setFont(QFont("Arial", 10))
-        top_layout.addWidget(self.status_label)
+        # Video display area (fills most of screen)
+        self.video_display_container = QWidget()
+        video_display_layout = QHBoxLayout(self.video_display_container)
+        video_display_layout.setContentsMargins(10, 10, 10, 10)
+        video_display_layout.setSpacing(10)
         
-        # Controls frame (center)
-        controls_widget = QWidget()
-        controls_layout = QHBoxLayout(controls_widget)
-        controls_layout.setContentsMargins(20, 0, 20, 0)
-        
-        # Self video toggle
-        self.self_video_check = QCheckBox("📹 Camera")
-        self.self_video_check.setChecked(True)
-        self.self_video_check.toggled.connect(self.toggle_self_video)
-        controls_layout.addWidget(self.self_video_check)
-        
-        # Microphone toggle
-        self.mic_check = QCheckBox("🎤 Microphone")
-        self.mic_check.setChecked(True)
-        self.mic_check.toggled.connect(self.toggle_microphone)
-        controls_layout.addWidget(self.mic_check)
-        
-        # Speaker toggle
-        self.speaker_check = QCheckBox("🔊 Speaker")
-        self.speaker_check.setChecked(True)
-        self.speaker_check.toggled.connect(self.toggle_speaker)
-        controls_layout.addWidget(self.speaker_check)
-        
-        # Screen sharing button
-        self.share_screen_btn = QPushButton("🖥️ Share Screen")
-        self.share_screen_btn.clicked.connect(self.toggle_screen_sharing)
-        controls_layout.addWidget(self.share_screen_btn)
-        
-        # Layout selector - Google Meet style
-        controls_layout.addWidget(QLabel("Layout:"))
-        self.layout_combo = QComboBox()
-        self.layout_combo.addItems(["Auto", "Tiled", "Spotlight"])
-        self.layout_combo.setCurrentText("Auto")
-        self.layout_combo.currentTextChanged.connect(self.change_layout)
-        self.layout_combo.setMaximumWidth(100)
-        controls_layout.addWidget(self.layout_combo)
-        
-        # Audio device selectors
-        controls_layout.addWidget(QLabel("Mic:"))
-        self.input_device_combo = QComboBox()
-        self.input_device_combo.currentTextChanged.connect(self.on_input_device_changed)
-        self.input_device_combo.setMaximumWidth(200)
-        controls_layout.addWidget(self.input_device_combo)
-        
-        controls_layout.addWidget(QLabel("Speaker:"))
-        self.output_device_combo = QComboBox()
-        self.output_device_combo.currentTextChanged.connect(self.on_output_device_changed)
-        self.output_device_combo.setMaximumWidth(200)
-        controls_layout.addWidget(self.output_device_combo)
-        
-        # Refresh button for audio devices
-        refresh_btn = QPushButton("🔄")
-        refresh_btn.setMaximumWidth(30)
-        refresh_btn.clicked.connect(self.refresh_audio_devices)
-        controls_layout.addWidget(refresh_btn)
-        
-        controls_layout.addStretch()
-        top_layout.addWidget(controls_widget, stretch=1)
-        
-        # User count label
-        self.user_count_label = QLabel("Users: 0")
-        self.user_count_label.setFont(QFont("Arial", 10))
-        top_layout.addWidget(self.user_count_label)
-        
-        main_layout.addWidget(top_frame)
-        
-        # Main content area - Google Meet style layout
-        content_widget = QWidget()
-        content_layout = QHBoxLayout(content_widget)
-        content_layout.setSpacing(5)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Main video area (will switch between tiled grid and spotlight)
+        # Main video/screen area
         self.main_video_container = QWidget()
         self.main_video_layout = QVBoxLayout(self.main_video_container)
         self.main_video_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Video frame for tiled/grid mode
+        # Tiled video grid (default view)
         self.video_frame = QFrame()
         self.video_frame.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
         self.video_frame.setLineWidth(2)
+        self.video_frame.setStyleSheet("QFrame { background-color: #000000; }")
         self.main_video_layout.addWidget(self.video_frame)
         
-        # Spotlight container (hidden by default)
+        # Spotlight/Screen share container (hidden by default)
         self.spotlight_container = QWidget()
         self.spotlight_layout = QHBoxLayout(self.spotlight_container)
-        self.spotlight_layout.setSpacing(5)
+        self.spotlight_layout.setSpacing(10)
         self.spotlight_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Spotlight main area (75% width)
+        # Spotlight main area (screen share or main speaker)
         self.spotlight_main = QFrame()
         self.spotlight_main.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
         self.spotlight_main.setLineWidth(2)
+        self.spotlight_main.setStyleSheet("QFrame { background-color: #000000; }")
         spotlight_main_layout = QVBoxLayout(self.spotlight_main)
-        
-        # Spotlight name label
-        self.spotlight_name_label = QLabel("")
-        self.spotlight_name_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        self.spotlight_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        spotlight_main_layout.addWidget(self.spotlight_name_label)
+        spotlight_main_layout.setContentsMargins(0, 0, 0, 0)
+        spotlight_main_layout.setSpacing(0)
         
         # Spotlight video label
         self.spotlight_label = QLabel("No Content")
@@ -1281,146 +1217,839 @@ class VideoConferenceClient(QMainWindow):
         self.spotlight_label.setStyleSheet("background-color: black; color: white;")
         spotlight_main_layout.addWidget(self.spotlight_label, stretch=1)
         
-        self.spotlight_layout.addWidget(self.spotlight_main, stretch=3)
+        # Spotlight name label (shows who is sharing/speaking)
+        self.spotlight_name_label = QLabel("")
+        self.spotlight_name_label.setFont(QFont("Arial", 12))
+        self.spotlight_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.spotlight_name_label.setStyleSheet("background-color: rgba(0, 0, 0, 180); color: white; padding: 8px;")
+        self.spotlight_name_label.setMaximumHeight(40)
+        spotlight_main_layout.addWidget(self.spotlight_name_label)
         
-        # Sidebar for other participants (25% width, scrollable)
-        sidebar_container = QFrame()
-        sidebar_container.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
-        sidebar_container.setLineWidth(1)
-        sidebar_container.setMaximumWidth(250)
-        sidebar_layout = QVBoxLayout(sidebar_container)
-        sidebar_layout.setContentsMargins(2, 2, 2, 2)
+        self.spotlight_layout.addWidget(self.spotlight_main, stretch=1)
         
-        sidebar_header = QLabel("Participants")
-        sidebar_header.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        sidebar_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sidebar_layout.addWidget(sidebar_header)
+        # Sidebar for participant thumbnails (when screen sharing)
+        self.participants_sidebar = QFrame()
+        self.participants_sidebar.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        self.participants_sidebar.setLineWidth(1)
+        self.participants_sidebar.setMaximumWidth(200)
+        self.participants_sidebar.setStyleSheet("QFrame { background-color: #1e1e1e; }")
+        sidebar_layout = QVBoxLayout(self.participants_sidebar)
+        sidebar_layout.setContentsMargins(5, 5, 5, 5)
+        sidebar_layout.setSpacing(5)
         
         # Scrollable area for participant thumbnails
         self.sidebar_scroll = QScrollArea()
         self.sidebar_scroll.setWidgetResizable(True)
         self.sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.sidebar_scroll.setStyleSheet("QScrollArea { background-color: #1e1e1e; border: none; }")
         
         self.sidebar_widget = QWidget()
         self.sidebar_widget_layout = QVBoxLayout(self.sidebar_widget)
-        self.sidebar_widget_layout.setSpacing(5)
-        self.sidebar_widget_layout.setContentsMargins(2, 2, 2, 2)
+        self.sidebar_widget_layout.setSpacing(8)
+        self.sidebar_widget_layout.setContentsMargins(0, 0, 0, 0)
         self.sidebar_widget_layout.addStretch()
         
         self.sidebar_scroll.setWidget(self.sidebar_widget)
         sidebar_layout.addWidget(self.sidebar_scroll)
         
-        self.spotlight_layout.addWidget(sidebar_container, stretch=1)
+        self.spotlight_layout.addWidget(self.participants_sidebar)
+        self.participants_sidebar.hide()  # Hidden until screen share
         
         # Add spotlight container to main layout (hidden initially)
         self.main_video_layout.addWidget(self.spotlight_container)
         self.spotlight_container.hide()
         
-        content_layout.addWidget(self.main_video_container, stretch=3)
+        video_display_layout.addWidget(self.main_video_container, stretch=1)
         
-        # Chat panel (right side)
-        chat_container = QFrame()
-        chat_container.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
-        chat_container.setLineWidth(2)
-        chat_layout = QVBoxLayout(chat_container)
+        main_content_layout.addWidget(self.video_display_container, stretch=1)
+        
+        # Bottom control bar (Google Meet style)
+        bottom_bar = QWidget()
+        bottom_bar.setFixedHeight(70)
+        bottom_bar.setStyleSheet("""
+            QWidget {
+                background-color: #202124;
+                border-top: 1px solid #3c4043;
+            }
+        """)
+        bottom_bar_layout = QHBoxLayout(bottom_bar)
+        bottom_bar_layout.setContentsMargins(20, 10, 20, 10)
+        
+        # Left side - Meeting info
+        info_label = QLabel()
+        info_label.setFont(QFont("Arial", 9))
+        info_label.setStyleSheet("color: #e8eaed;")
+        self.meeting_info_label = info_label
+        bottom_bar_layout.addWidget(info_label)
+        
+        bottom_bar_layout.addStretch()
+        
+        # Center - Main controls
+        controls_widget = QWidget()
+        controls_layout = QHBoxLayout(controls_widget)
+        controls_layout.setSpacing(10)
+        
+        # Microphone button
+        self.mic_btn = QPushButton()
+        self.mic_btn.setCheckable(True)
+        self.mic_btn.setChecked(True)
+        self.mic_btn.setIcon(self.mic_btn.style().standardIcon(self.mic_btn.style().StandardPixmap.SP_MediaPlay))
+        self.mic_btn.setText("🎤")
+        self.mic_btn.setFont(QFont("Arial", 20))
+        self.mic_btn.setFixedSize(50, 50)
+        self.mic_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border-radius: 25px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+            QPushButton:checked {
+                background-color: #ea4335;
+            }
+        """)
+        self.mic_btn.toggled.connect(self.toggle_microphone)
+        controls_layout.addWidget(self.mic_btn)
+        
+        # Camera button
+        self.camera_btn = QPushButton()
+        self.camera_btn.setCheckable(True)
+        self.camera_btn.setChecked(True)
+        self.camera_btn.setText("📹")
+        self.camera_btn.setFont(QFont("Arial", 20))
+        self.camera_btn.setFixedSize(50, 50)
+        self.camera_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border-radius: 25px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+            QPushButton:checked {
+                background-color: #ea4335;
+            }
+        """)
+        self.camera_btn.toggled.connect(self.toggle_self_video)
+        controls_layout.addWidget(self.camera_btn)
+        
+        # Screen share button - use monitor symbol
+        self.share_screen_btn = QPushButton()
+        self.share_screen_btn.setCheckable(True)
+        self.share_screen_btn.setText("�")  # Monitor symbol
+        self.share_screen_btn.setFont(QFont("Arial", 20))
+        self.share_screen_btn.setFixedSize(50, 50)
+        self.share_screen_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border-radius: 25px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+            QPushButton:checked {
+                background-color: #1a73e8;
+            }
+        """)
+        self.share_screen_btn.toggled.connect(self.toggle_screen_sharing)
+        controls_layout.addWidget(self.share_screen_btn)
+        
+        # Leave call button
+        leave_btn = QPushButton("📞")
+        leave_btn.setFont(QFont("Arial", 20))
+        leave_btn.setFixedSize(50, 50)
+        leave_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ea4335;
+                border-radius: 25px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #c5341c;
+            }
+        """)
+        leave_btn.clicked.connect(self.close)
+        controls_layout.addWidget(leave_btn)
+        
+        bottom_bar_layout.addWidget(controls_widget)
+        
+        bottom_bar_layout.addStretch()
+        
+        # Right side - Panel toggles and settings
+        right_controls = QWidget()
+        right_controls_layout = QHBoxLayout(right_controls)
+        right_controls_layout.setSpacing(8)
+        
+        # People panel toggle
+        people_btn = QPushButton("👥")
+        people_btn.setFont(QFont("Arial", 16))
+        people_btn.setFixedSize(40, 40)
+        people_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border-radius: 20px;
+                border: none;
+                color: #e8eaed;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+        """)
+        people_btn.setToolTip("People")
+        people_btn.clicked.connect(self.toggle_people_panel)
+        right_controls_layout.addWidget(people_btn)
+        
+        # Chat panel toggle
+        chat_btn = QPushButton("💬")
+        chat_btn.setFont(QFont("Arial", 16))
+        chat_btn.setFixedSize(40, 40)
+        chat_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border-radius: 20px;
+                border: none;
+                color: #e8eaed;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+        """)
+        chat_btn.setToolTip("Chat")
+        chat_btn.clicked.connect(self.toggle_chat_panel)
+        right_controls_layout.addWidget(chat_btn)
+        
+        # File panel toggle
+        file_btn = QPushButton("📁")
+        file_btn.setFont(QFont("Arial", 16))
+        file_btn.setFixedSize(40, 40)
+        file_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border-radius: 20px;
+                border: none;
+                color: #e8eaed;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+        """)
+        file_btn.setToolTip("Files")
+        file_btn.clicked.connect(self.toggle_file_panel)
+        right_controls_layout.addWidget(file_btn)
+        
+        # Settings button
+        settings_btn = QPushButton("⚙️")
+        settings_btn.setFont(QFont("Arial", 16))
+        settings_btn.setFixedSize(40, 40)
+        settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border-radius: 20px;
+                border: none;
+                color: #e8eaed;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+        """)
+        settings_btn.setToolTip("Settings")
+        settings_btn.clicked.connect(self.show_settings_panel)
+        right_controls_layout.addWidget(settings_btn)
+        
+        bottom_bar_layout.addWidget(right_controls)
+        
+        main_content_layout.addWidget(bottom_bar)
+        
+        main_layout.addWidget(self.main_content_widget, stretch=1)
+        
+        # Chat Side Panel (hidden by default)
+        self.chat_panel = QWidget()
+        self.chat_panel.setFixedWidth(350)
+        self.chat_panel.setStyleSheet("""
+            QWidget {
+                background-color: #1e1e1e;
+                border-left: 1px solid #3c4043;
+            }
+        """)
+        chat_panel_layout = QVBoxLayout(self.chat_panel)
+        chat_panel_layout.setContentsMargins(0, 0, 0, 0)
+        chat_panel_layout.setSpacing(0)
         
         # Chat header
-        chat_header = QLabel("💬 Chat")
-        chat_header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        chat_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        chat_layout.addWidget(chat_header)
+        chat_header = QWidget()
+        chat_header.setFixedHeight(60)
+        chat_header.setStyleSheet("background-color: #2d2d30; border-bottom: 1px solid #3c4043;")
+        chat_header_layout = QHBoxLayout(chat_header)
+        chat_header_layout.setContentsMargins(20, 10, 20, 10)
         
-        # Chat display area (QTextEdit has built-in scrollbar)
+        chat_title = QLabel("Messages")
+        chat_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        chat_title.setStyleSheet("color: #e8eaed;")
+        chat_header_layout.addWidget(chat_title)
+        
+        chat_header_layout.addStretch()
+        
+        close_chat_btn = QPushButton("✕")
+        close_chat_btn.setFixedSize(30, 30)
+        close_chat_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #e8eaed;
+                font-size: 18px;
+            }
+            QPushButton:hover {
+                background-color: #3c4043;
+                border-radius: 15px;
+            }
+        """)
+        close_chat_btn.clicked.connect(self.toggle_chat_panel)
+        chat_header_layout.addWidget(close_chat_btn)
+        
+        chat_panel_layout.addWidget(chat_header)
+        
+        # Chat messages area
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse | 
             Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
-        self.chat_display.setFont(QFont("Arial", 10))
-        # Explicitly set colors to ensure visibility
+        self.chat_display.setFont(QFont("Arial", 11))
         self.chat_display.setStyleSheet("""
             QTextEdit {
                 background-color: #1e1e1e;
-                color: #ffffff;
-                border: 1px solid #3e3e42;
-                border-radius: 4px;
-                padding: 5px;
+                color: #e8eaed;
+                border: none;
+                padding: 15px;
             }
         """)
-        chat_layout.addWidget(self.chat_display, stretch=1)
+        chat_panel_layout.addWidget(self.chat_display, stretch=1)
         
-        # Recipient selection area
+        # Chat input area
+        chat_input_container = QWidget()
+        chat_input_container.setStyleSheet("background-color: #2d2d30; border-top: 1px solid #3c4043;")
+        chat_input_layout = QVBoxLayout(chat_input_container)
+        chat_input_layout.setContentsMargins(15, 15, 15, 15)
+        
+        # Recipient selector
         recipient_widget = QWidget()
         recipient_layout = QHBoxLayout(recipient_widget)
-        recipient_layout.setContentsMargins(0, 0, 0, 0)
+        recipient_layout.setContentsMargins(0, 0, 0, 5)
         
-        recipient_layout.addWidget(QLabel("To:"))
+        to_label = QLabel("To:")
+        to_label.setStyleSheet("color: #e8eaed;")
+        recipient_layout.addWidget(to_label)
         
         self.recipient_combo = QComboBox()
         self.recipient_combo.addItem("Everyone")
-        self.recipient_combo.setFont(QFont("Arial", 9))
+        self.recipient_combo.setFont(QFont("Arial", 10))
+        self.recipient_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #3c4043;
+                border: 1px solid #5f6368;
+                border-radius: 4px;
+                padding: 5px;
+                color: #e8eaed;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #e8eaed;
+                width: 0;
+                height: 0;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2d2d30;
+                color: #e8eaed;
+                selection-background-color: #007acc;
+                border: 1px solid #5f6368;
+            }
+        """)
         recipient_layout.addWidget(self.recipient_combo, stretch=1)
         
-        # Button to select multiple recipients
-        select_multiple_btn = QPushButton("Select Multiple...")
+        select_multiple_btn = QPushButton("...")
+        select_multiple_btn.setFixedSize(30, 30)
         select_multiple_btn.clicked.connect(self.show_recipient_selector)
+        select_multiple_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border: 1px solid #5f6368;
+                border-radius: 4px;
+                color: #e8eaed;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+        """)
         recipient_layout.addWidget(select_multiple_btn)
         
-        chat_layout.addWidget(recipient_widget)
+        chat_input_layout.addWidget(recipient_widget)
         
-        # Chat input area
-        chat_input_widget = QWidget()
-        chat_input_layout = QHBoxLayout(chat_input_widget)
-        chat_input_layout.setContentsMargins(0, 0, 0, 0)
+        # Message input
+        message_input_widget = QWidget()
+        message_input_layout = QHBoxLayout(message_input_widget)
+        message_input_layout.setContentsMargins(0, 0, 0, 0)
         
         self.chat_input = QLineEdit()
-        self.chat_input.setFont(QFont("Arial", 10))
+        self.chat_input.setPlaceholderText("Send a message...")
+        self.chat_input.setFont(QFont("Arial", 11))
+        self.chat_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #3c4043;
+                border: 1px solid #5f6368;
+                border-radius: 20px;
+                padding: 10px 15px;
+                color: #e8eaed;
+            }
+            QLineEdit:focus {
+                border: 2px solid #1a73e8;
+            }
+        """)
         self.chat_input.returnPressed.connect(self.send_chat_message)
-        chat_input_layout.addWidget(self.chat_input, stretch=1)
+        message_input_layout.addWidget(self.chat_input, stretch=1)
         
-        send_btn = QPushButton("Send")
+        send_btn = QPushButton("➤")
+        send_btn.setFixedSize(40, 40)
+        send_btn.setFont(QFont("Arial", 16))
+        send_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1a73e8;
+                border-radius: 20px;
+                border: none;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #1557b0;
+            }
+        """)
         send_btn.clicked.connect(self.send_chat_message)
-        send_btn.setMaximumWidth(80)
-        chat_input_layout.addWidget(send_btn)
+        message_input_layout.addWidget(send_btn)
         
-        chat_layout.addWidget(chat_input_widget)
+        chat_input_layout.addWidget(message_input_widget)
         
-        # File sharing section
-        file_group = QGroupBox("📁 Shared Files")
-        file_layout = QVBoxLayout(file_group)
+        chat_panel_layout.addWidget(chat_input_container)
         
-        # File upload button
+        main_layout.addWidget(self.chat_panel)
+        self.chat_panel.hide()  # Hidden by default
+        
+        # File Panel (hidden by default)
+        self.file_panel = QWidget()
+        self.file_panel.setFixedWidth(350)
+        self.file_panel.setStyleSheet("""
+            QWidget {
+                background-color: #1e1e1e;
+                border-left: 1px solid #3c4043;
+            }
+        """)
+        file_panel_layout = QVBoxLayout(self.file_panel)
+        file_panel_layout.setContentsMargins(0, 0, 0, 0)
+        file_panel_layout.setSpacing(0)
+        
+        # File header
+        file_header = QWidget()
+        file_header.setFixedHeight(60)
+        file_header.setStyleSheet("background-color: #2d2d30; border-bottom: 1px solid #3c4043;")
+        file_header_layout = QHBoxLayout(file_header)
+        file_header_layout.setContentsMargins(20, 10, 20, 10)
+        
+        file_title = QLabel("Shared Files")
+        file_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        file_title.setStyleSheet("color: #e8eaed;")
+        file_header_layout.addWidget(file_title)
+        
+        file_header_layout.addStretch()
+        
+        close_file_btn = QPushButton("✕")
+        close_file_btn.setFixedSize(30, 30)
+        close_file_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #e8eaed;
+                font-size: 18px;
+            }
+            QPushButton:hover {
+                background-color: #3c4043;
+                border-radius: 15px;
+            }
+        """)
+        close_file_btn.clicked.connect(self.toggle_file_panel)
+        file_header_layout.addWidget(close_file_btn)
+        
+        file_panel_layout.addWidget(file_header)
+        
+        # File content area
+        file_content_scroll = QScrollArea()
+        file_content_scroll.setWidgetResizable(True)
+        file_content_scroll.setStyleSheet("QScrollArea { background-color: #1e1e1e; border: none; }")
+        
+        file_content_widget = QWidget()
+        file_content_layout = QVBoxLayout(file_content_widget)
+        file_content_layout.setContentsMargins(20, 20, 20, 20)
+        file_content_layout.setSpacing(15)
+        
+        # Upload button
         upload_btn = QPushButton("📤 Upload File")
+        upload_btn.setFixedHeight(40)
+        upload_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1a73e8;
+                border-radius: 4px;
+                border: none;
+                color: white;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1557b0;
+            }
+        """)
         upload_btn.clicked.connect(self.upload_file)
-        file_layout.addWidget(upload_btn)
+        file_content_layout.addWidget(upload_btn)
         
-        # File list with checkboxes - using QListWidget with checkable items
+        # File list
         self.file_listbox = QListWidget()
-        self.file_listbox.setFont(QFont("Arial", 9))
-        self.file_listbox.setMaximumHeight(120)
-        file_layout.addWidget(self.file_listbox)
+        self.file_listbox.setFont(QFont("Arial", 10))
+        self.file_listbox.setStyleSheet("""
+            QListWidget {
+                background-color: #2d2d30;
+                border: 1px solid #3c4043;
+                border-radius: 4px;
+                color: #e8eaed;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #3c4043;
+            }
+            QListWidget::item:hover {
+                background-color: #3c4043;
+            }
+            QListWidget::item:selected {
+                background-color: #007acc;
+                color: #ffffff;
+            }
+        """)
+        file_content_layout.addWidget(self.file_listbox, stretch=1)
         
-        # Buttons for file operations
-        file_buttons_widget = QWidget()
-        file_buttons_layout = QHBoxLayout(file_buttons_widget)
-        file_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        # File action buttons
+        file_actions_widget = QWidget()
+        file_actions_layout = QHBoxLayout(file_actions_widget)
+        file_actions_layout.setSpacing(10)
         
         download_btn = QPushButton("📥 Download")
+        download_btn.setFixedHeight(35)
+        download_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border: 1px solid #5f6368;
+                border-radius: 4px;
+                color: #e8eaed;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+        """)
         download_btn.clicked.connect(self.download_selected_files)
-        file_buttons_layout.addWidget(download_btn)
+        file_actions_layout.addWidget(download_btn)
         
         delete_btn = QPushButton("🗑️ Delete")
+        delete_btn.setFixedHeight(35)
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border: 1px solid #dadce0;
+                border-radius: 4px;
+                color: #ea4335;
+                font-size: 12px;
+                border: 1px solid #5f6368;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+        """)
         delete_btn.clicked.connect(self.delete_selected_files)
-        file_buttons_layout.addWidget(delete_btn)
+        file_actions_layout.addWidget(delete_btn)
         
-        file_layout.addWidget(file_buttons_widget)
+        file_content_layout.addWidget(file_actions_widget)
         
-        chat_layout.addWidget(file_group)
+        file_content_scroll.setWidget(file_content_widget)
+        file_panel_layout.addWidget(file_content_scroll)
         
-        content_layout.addWidget(chat_container, stretch=1)
+        main_layout.addWidget(self.file_panel)
+        self.file_panel.hide()  # Hidden by default
         
-        main_layout.addWidget(content_widget, stretch=1)
+        # People Panel (hidden by default)
+        self.people_panel = QWidget()
+        self.people_panel.setFixedWidth(350)
+        self.people_panel.setStyleSheet("""
+            QWidget {
+                background-color: #1e1e1e;
+                border-left: 1px solid #3c4043;
+            }
+        """)
+        people_panel_layout = QVBoxLayout(self.people_panel)
+        people_panel_layout.setContentsMargins(0, 0, 0, 0)
+        people_panel_layout.setSpacing(0)
+        
+        # People header
+        people_header = QWidget()
+        people_header.setFixedHeight(60)
+        people_header.setStyleSheet("background-color: #2d2d30; border-bottom: 1px solid #3c4043;")
+        people_header_layout = QHBoxLayout(people_header)
+        people_header_layout.setContentsMargins(20, 10, 20, 10)
+        
+        people_title = QLabel("Participants")
+        people_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        people_title.setStyleSheet("color: #e8eaed;")
+        people_header_layout.addWidget(people_title)
+        
+        people_header_layout.addStretch()
+        
+        self.people_count_label = QLabel("0")
+        self.people_count_label.setFont(QFont("Arial", 12))
+        self.people_count_label.setStyleSheet("color: #e8eaed;")
+        people_header_layout.addWidget(self.people_count_label)
+        
+        close_people_btn = QPushButton("✕")
+        close_people_btn.setFixedSize(30, 30)
+        close_people_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #e8eaed;
+                font-size: 18px;
+            }
+            QPushButton:hover {
+                background-color: #3c4043;
+                border-radius: 15px;
+            }
+        """)
+        close_people_btn.clicked.connect(self.toggle_people_panel)
+        people_header_layout.addWidget(close_people_btn)
+        
+        people_panel_layout.addWidget(people_header)
+        
+        # People list with audio device settings
+        people_content_scroll = QScrollArea()
+        people_content_scroll.setWidgetResizable(True)
+        people_content_scroll.setStyleSheet("QScrollArea { background-color: #1e1e1e; border: none; }")
+        
+        people_content_widget = QWidget()
+        people_content_layout = QVBoxLayout(people_content_widget)
+        people_content_layout.setContentsMargins(20, 20, 20, 20)
+        people_content_layout.setSpacing(15)
+        
+        self.participants_list = QListWidget()
+        self.participants_list.setFont(QFont("Arial", 11))
+        self.participants_list.setStyleSheet("""
+            QListWidget {
+                background-color: #2d2d30;
+                border: 1px solid #3c4043;
+                border-radius: 4px;
+                color: #e8eaed;
+            }
+            QListWidget::item {
+                padding: 10px;
+                border-bottom: 1px solid #3c4043;
+            }
+            QListWidget::item:selected {
+                background-color: #007acc;
+                color: #ffffff;
+            }
+            QListWidget::item:hover {
+                background-color: #3c4043;
+            }
+        """)
+        people_content_layout.addWidget(self.participants_list, stretch=1)
+        
+        people_content_scroll.setWidget(people_content_widget)
+        people_panel_layout.addWidget(people_content_scroll)
+        
+        main_layout.addWidget(self.people_panel)
+        self.people_panel.hide()  # Hidden by default
+        
+        # Settings Panel (hidden by default)
+        self.settings_panel = QWidget()
+        self.settings_panel.setFixedWidth(350)
+        self.settings_panel.setStyleSheet("""
+            QWidget {
+                background-color: #1e1e1e;
+                border-left: 1px solid #3c4043;
+            }
+        """)
+        settings_panel_layout = QVBoxLayout(self.settings_panel)
+        settings_panel_layout.setContentsMargins(0, 0, 0, 0)
+        settings_panel_layout.setSpacing(0)
+        
+        # Settings header
+        settings_header = QWidget()
+        settings_header.setFixedHeight(60)
+        settings_header.setStyleSheet("background-color: #2d2d30; border-bottom: 1px solid #3c4043;")
+        settings_header_layout = QHBoxLayout(settings_header)
+        settings_header_layout.setContentsMargins(20, 10, 20, 10)
+        
+        settings_title = QLabel("Settings")
+        settings_title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        settings_title.setStyleSheet("color: #e8eaed;")
+        settings_header_layout.addWidget(settings_title)
+        
+        settings_header_layout.addStretch()
+        
+        close_settings_btn = QPushButton("✕")
+        close_settings_btn.setFixedSize(30, 30)
+        close_settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #e8eaed;
+                font-size: 18px;
+            }
+            QPushButton:hover {
+                background-color: #3c4043;
+                border-radius: 15px;
+            }
+        """)
+        close_settings_btn.clicked.connect(self.toggle_settings_panel)
+        settings_header_layout.addWidget(close_settings_btn)
+        
+        settings_panel_layout.addWidget(settings_header)
+        
+        # Settings content
+        settings_content_scroll = QScrollArea()
+        settings_content_scroll.setWidgetResizable(True)
+        settings_content_scroll.setStyleSheet("QScrollArea { background-color: #1e1e1e; border: none; }")
+        
+        settings_content_widget = QWidget()
+        settings_content_layout = QVBoxLayout(settings_content_widget)
+        settings_content_layout.setContentsMargins(20, 20, 20, 20)
+        settings_content_layout.setSpacing(15)
+        
+        # Audio settings section
+        audio_group = QGroupBox("Audio Settings")
+        audio_group.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        audio_group.setStyleSheet("""
+            QGroupBox {
+                color: #e8eaed;
+                border: 1px solid #3c4043;
+                border-radius: 4px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        audio_layout = QVBoxLayout(audio_group)
+        
+        # Microphone selector
+        mic_label = QLabel("Microphone:")
+        mic_label.setFont(QFont("Arial", 10))
+        mic_label.setStyleSheet("color: #e8eaed;")
+        audio_layout.addWidget(mic_label)
+        
+        self.input_device_combo = QComboBox()
+        self.input_device_combo.currentTextChanged.connect(self.on_input_device_changed)
+        self.input_device_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #3c4043;
+                border: 1px solid #5f6368;
+                border-radius: 4px;
+                padding: 5px;
+                color: #e8eaed;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #e8eaed;
+                width: 0;
+                height: 0;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2d2d30;
+                color: #e8eaed;
+                selection-background-color: #007acc;
+                border: 1px solid #5f6368;
+            }
+        """)
+        audio_layout.addWidget(self.input_device_combo)
+        
+        # Speaker selector
+        speaker_label = QLabel("Speaker:")
+        speaker_label.setFont(QFont("Arial", 10))
+        speaker_label.setStyleSheet("color: #e8eaed;")
+        audio_layout.addWidget(speaker_label)
+        
+        self.output_device_combo = QComboBox()
+        self.output_device_combo.currentTextChanged.connect(self.on_output_device_changed)
+        self.output_device_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #3c4043;
+                border: 1px solid #5f6368;
+                border-radius: 4px;
+                padding: 5px;
+                color: #e8eaed;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #e8eaed;
+                width: 0;
+                height: 0;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2d2d30;
+                color: #e8eaed;
+                selection-background-color: #007acc;
+                border: 1px solid #5f6368;
+            }
+        """)
+        audio_layout.addWidget(self.output_device_combo)
+        
+        # Refresh button
+        refresh_btn = QPushButton("🔄 Refresh Devices")
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3c4043;
+                border: 1px solid #5f6368;
+                border-radius: 4px;
+                padding: 5px;
+                color: #e8eaed;
+            }
+            QPushButton:hover {
+                background-color: #5f6368;
+            }
+        """)
+        refresh_btn.clicked.connect(self.refresh_audio_devices)
+        audio_layout.addWidget(refresh_btn)
+        
+        settings_content_layout.addWidget(audio_group)
+        settings_content_layout.addStretch()
+        
+        settings_content_scroll.setWidget(settings_content_widget)
+        settings_panel_layout.addWidget(settings_content_scroll)
+        
+        main_layout.addWidget(self.settings_panel)
+        self.settings_panel.hide()  # Hidden by default
         
         # Store file metadata: {file_id: {'filename': name, 'size': size, 'uploader': name}}
         self.shared_files_metadata = {}
@@ -1438,35 +2067,113 @@ class VideoConferenceClient(QMainWindow):
         # Start GUI update loop
         self.update_gui()
     
+    def toggle_chat_panel(self):
+        """Toggle chat panel visibility"""
+        self.chat_panel_visible = not self.chat_panel_visible
+        if self.chat_panel_visible:
+            self.chat_panel.show()
+            # Hide other panels
+            self.file_panel.hide()
+            self.file_panel_visible = False
+            self.people_panel.hide()
+            self.people_panel_visible = False
+            self.settings_panel.hide()
+            self.settings_panel_visible = False
+        else:
+            self.chat_panel.hide()
+    
+    def toggle_file_panel(self):
+        """Toggle file panel visibility"""
+        self.file_panel_visible = not self.file_panel_visible
+        if self.file_panel_visible:
+            self.file_panel.show()
+            # Hide other panels
+            self.chat_panel.hide()
+            self.chat_panel_visible = False
+            self.people_panel.hide()
+            self.people_panel_visible = False
+            self.settings_panel.hide()
+            self.settings_panel_visible = False
+        else:
+            self.file_panel.hide()
+    
+    def toggle_people_panel(self):
+        """Toggle people panel visibility"""
+        self.people_panel_visible = not self.people_panel_visible
+        if self.people_panel_visible:
+            self.people_panel.show()
+            # Hide other panels
+            self.chat_panel.hide()
+            self.chat_panel_visible = False
+            self.file_panel.hide()
+            self.file_panel_visible = False
+            self.settings_panel.hide()
+            self.settings_panel_visible = False
+            # Update participant list
+            self.update_participants_list()
+        else:
+            self.people_panel.hide()
+    
+    def toggle_settings_panel(self):
+        """Toggle settings panel visibility"""
+        self.settings_panel_visible = not self.settings_panel_visible
+        if self.settings_panel_visible:
+            self.settings_panel.show()
+            # Hide other panels
+            self.chat_panel.hide()
+            self.chat_panel_visible = False
+            self.file_panel.hide()
+            self.file_panel_visible = False
+            self.people_panel.hide()
+            self.people_panel_visible = False
+        else:
+            self.settings_panel.hide()
+    
+    def update_participants_list(self):
+        """Update the participants list in people panel"""
+        self.participants_list.clear()
+        with self.users_lock:
+            count = len(self.users)
+            self.people_count_label.setText(str(count))
+            for user_id, username in self.users.items():
+                self.participants_list.addItem(f"👤 {username}")
+    
+    def show_settings_panel(self):
+        """Show settings panel"""
+        self.toggle_settings_panel()
+    
     def toggle_self_video(self):
         """Toggle video capture on/off"""
-        self.show_self_video = self.self_video_check.isChecked()
+        self.show_self_video = self.camera_btn.isChecked()
         if self.show_self_video:
             # Turn video ON - start capturing and transmitting
+            self.mic_btn.setText("📹")
             self.start_video_capture()
         else:
             # Turn video OFF - stop capturing and transmitting
+            self.camera_btn.setText("📹")
             self.stop_video_capture()
     
     def toggle_microphone(self):
         """Toggle microphone on/off"""
-        self.microphone_on = self.mic_check.isChecked()
+        self.microphone_on = self.mic_btn.isChecked()
         if self.microphone_on:
             # Turn microphone ON
+            self.mic_btn.setText("🎤")
             self.start_audio_capture()
         else:
             # Turn microphone OFF
+            self.mic_btn.setText("🎤")
             self.stop_audio_capture()
     
     def toggle_speaker(self):
         """Toggle speaker on/off"""
-        self.speaker_on = self.speaker_check.isChecked()
-        if self.speaker_on:
-            # Turn speaker ON
-            self.start_audio_playback()
-        else:
-            # Turn speaker OFF
-            self.stop_audio_playback()
+        # Speaker is always on in new design - audio playback handled automatically
+        if hasattr(self, 'speaker_on'):
+            if self.speaker_on:
+                self.start_audio_playback()
+            else:
+                self.stop_audio_playback()
     
     def send_chat_message(self):
         """Send a chat message to the server"""
@@ -1601,7 +2308,7 @@ class VideoConferenceClient(QMainWindow):
         dialog.exec()
     
     def update_recipient_list(self):
-        """Update the recipient dropdown with current users"""
+        """Update the recipient dropdown with current users and participants list"""
         try:
             current_selection = self.recipient_combo.currentText()
             
@@ -1622,7 +2329,9 @@ class VideoConferenceClient(QMainWindow):
                 self.recipient_combo.setCurrentText("Everyone")
             else:
                 self.recipient_combo.setCurrentText(current_selection)
-                self.selected_recipients = []
+            
+            # Update participants list in people panel
+            self.update_participants_list()
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error updating recipient list: {e}")
     
@@ -2257,12 +2966,14 @@ class VideoConferenceClient(QMainWindow):
     def update_gui(self):
         """Update GUI with current video frames (Google Meet style - supports Tiled and Spotlight modes)"""
         try:
-            # Update status
+            # Update meeting info in bottom bar
             if self.connected:
-                self.status_label.setText(f"Connected as: {self.username} (ID: {self.client_id})")
-                
                 with self.users_lock:
-                    self.user_count_label.setText(f"Users: {len(self.users)}")
+                    user_count = len(self.users)
+                    timestamp = self.get_timestamp()
+                    self.meeting_info_label.setText(f"⏱️ {timestamp} • {user_count} participant{'s' if user_count != 1 else ''}")
+            else:
+                self.meeting_info_label.setText("Not connected")
             
             # Clean up stale video streams
             with self.streams_lock:
