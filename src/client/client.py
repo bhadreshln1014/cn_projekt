@@ -11,22 +11,35 @@ import struct
 import cv2
 import numpy as np
 import pyaudio
-from PIL import Image, ImageTk
-import tkinter as tk
-from tkinter import ttk, messagebox
+from PIL import Image
 from datetime import datetime
 import mss
 import os
-
 import sys
-import os
+
+# PyQt6 imports
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QLabel, QPushButton, QTextEdit, QLineEdit, QComboBox, QCheckBox,
+    QGridLayout, QFrame, QDialog, QListWidget, QProgressBar, QMessageBox,
+    QFileDialog, QScrollArea, QGroupBox, QListWidgetItem, QSizePolicy
+)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread, QSize
+from PyQt6.QtGui import QPixmap, QImage, QFont, QColor, QPalette
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from common.config import *
 
 
-class VideoConferenceClient:
+class VideoConferenceClient(QMainWindow):
+    # Signals for thread-safe GUI updates
+    chat_message_received = pyqtSignal(str, str, str)  # username, timestamp, message
+    chat_debug_signal = pyqtSignal(str)  # debug message to display
+    
     def __init__(self):
+        super().__init__()
+        
         # Network
         self.tcp_socket = None
         self.udp_socket = None
@@ -71,11 +84,10 @@ class VideoConferenceClient:
         self.screen_lock = threading.Lock()
         
         # GUI
-        self.root = None
         self.video_labels = {}
         self.screen_label = None  # Label for displaying shared screen
         
-        # UI Settings (will be initialized after root window is created)
+        # UI Settings
         self.show_self_video = None  # Will be BooleanVar
         self.microphone_on = None  # Will be BooleanVar
         self.speaker_on = None  # Will be BooleanVar
@@ -186,17 +198,19 @@ class VideoConferenceClient:
         # Update input device dropdown
         input_names = [d['name'] for d in devices['input']]
         if hasattr(self, 'input_device_combo'):
-            self.input_device_combo['values'] = input_names
+            self.input_device_combo.clear()
+            self.input_device_combo.addItems(input_names)
             if len(input_names) > 0 and self.selected_input_device is None:
-                self.input_device_combo.current(0)
+                self.input_device_combo.setCurrentIndex(0)
                 self.selected_input_device = devices['input'][0]['index']
         
         # Update output device dropdown
         output_names = [d['name'] for d in devices['output']]
         if hasattr(self, 'output_device_combo'):
-            self.output_device_combo['values'] = output_names
+            self.output_device_combo.clear()
+            self.output_device_combo.addItems(output_names)
             if len(output_names) > 0 and self.selected_output_device is None:
-                self.output_device_combo.current(0)
+                self.output_device_combo.setCurrentIndex(0)
                 self.selected_output_device = devices['output'][0]['index']
     
     def on_input_device_changed(self, event=None):
@@ -205,7 +219,7 @@ class VideoConferenceClient:
             return
         
         devices = self.get_audio_devices()
-        selected_name = self.input_device_combo.get()
+        selected_name = self.input_device_combo.currentText()
         
         for device in devices['input']:
             if device['name'] == selected_name:
@@ -226,7 +240,7 @@ class VideoConferenceClient:
             return
         
         devices = self.get_audio_devices()
-        selected_name = self.output_device_combo.get()
+        selected_name = self.output_device_combo.currentText()
         
         for device in devices['output']:
             if device['name'] == selected_name:
@@ -699,13 +713,12 @@ class VideoConferenceClient:
                 
                 buffer += data
                 
-                # Process messages (simple line-based protocol)
-                while '\n' in buffer or len(buffer) > 0:
-                    if '\n' in buffer:
-                        message, buffer = buffer.split('\n', 1)
-                    else:
-                        message = buffer
-                        buffer = ""
+                # Process complete messages (line-based protocol - only process when we have full lines)
+                while '\n' in buffer:
+                    message, buffer = buffer.split('\n', 1)
+                    
+                    if not message:  # Skip empty messages
+                        continue
                     
                     if message.startswith("USERS:"):
                         # Update user list
@@ -736,19 +749,23 @@ class VideoConferenceClient:
                     elif message.startswith("CHAT:"):
                         # Received chat message from server
                         try:
-                            parts = message.split(":", 4)  # CHAT:client_id:username:timestamp:message
-                            if len(parts) >= 5:
+                            # Format: CHAT:client_id:username:HH:MM:SS:message
+                            # Split into at most 4 parts: CHAT, client_id, username, "HH:MM:SS:message"
+                            parts = message.split(":", 3)
+                            if len(parts) >= 4:
                                 sender_id = int(parts[1])
                                 sender_username = parts[2]
-                                timestamp = parts[3]
-                                chat_message = parts[4]
+                                rest = parts[3]
                                 
-                                # Display in chat window (must be done in main thread)
-                                self.root.after(0, lambda: self.display_chat_message(
-                                    sender_username, timestamp, chat_message
-                                ))
+                                # rest is "HH:MM:SS:message", split once more to get timestamp and message
+                                # Timestamp is first 8 characters (HH:MM:SS)
+                                timestamp = rest[:8]
+                                chat_message = rest[9:] if len(rest) > 9 else ""  # Skip "HH:MM:SS:"
+                                
+                                # Display in chat window (done in main thread via signal)
+                                self.chat_message_received.emit(sender_username, timestamp, chat_message)
                         except Exception as e:
-                            print(f"[{self.get_timestamp()}] Error handling chat message: {e}")
+                            self.chat_debug_signal.emit(f"Error handling chat: {str(e)}")
                     
                     elif message.startswith("PRIVATE_CHAT:"):
                         # Received private chat message: PRIVATE_CHAT:sender_id:sender_username:timestamp:recipient_ids:message
@@ -772,41 +789,63 @@ class VideoConferenceClient:
                                             recipient_names.append("You")
                                 
                                 # Display in chat window (must be done in main thread)
-                                self.root.after(0, lambda: self.display_chat_message(
-                                    sender_username, timestamp, chat_message, 
-                                    is_private=True, recipient_names=recipient_names
-                                ))
+                                # Fix: Capture variables properly in lambda
+                                QTimer.singleShot(0, lambda u=sender_username, t=timestamp, m=chat_message, r=recipient_names:
+                                    self.display_chat_message(u, t, m, is_private=True, recipient_names=r))
                         except Exception as e:
                             print(f"[{self.get_timestamp()}] Error handling private chat message: {e}")
                     
                     elif message.startswith("FILE_OFFER:"):
-                        # File available for download: FILE_OFFER:file_id:filename:filesize:uploader_name
+                        # File available for download: FILE_OFFER:file_id:filename:filesize:uploader_name:uploader_id
                         try:
-                            parts = message.split(":", 4)
-                            if len(parts) >= 5:
+                            parts = message.split(":", 5)
+                            if len(parts) >= 6:
                                 file_id = int(parts[1])
                                 filename = parts[2]
                                 filesize = int(parts[3])
                                 uploader_name = parts[4]
+                                uploader_id = int(parts[5])
                                 
                                 # Store metadata
                                 self.shared_files_metadata[file_id] = {
                                     'filename': filename,
                                     'size': filesize,
-                                    'uploader': uploader_name
+                                    'uploader': uploader_name,
+                                    'uploader_id': uploader_id
                                 }
                                 
                                 # Update file list (must be in main thread)
-                                self.root.after(0, self.update_file_list)
+                                QTimer.singleShot(0, self.update_file_list)
                                 
                                 # Show notification in chat
                                 size_mb = filesize / (1024 * 1024)
                                 notification = f"📁 {uploader_name} shared a file: {filename} ({size_mb:.2f} MB)"
-                                self.root.after(0, lambda: self.display_chat_message(
+                                QTimer.singleShot(0, lambda: self.display_chat_message(
                                     "System", self.get_timestamp(), notification, is_system=True
                                 ))
                         except Exception as e:
                             print(f"[{self.get_timestamp()}] Error handling file offer: {e}")
+                    
+                    elif message.startswith("FILE_DELETED:"):
+                        # File deleted notification: FILE_DELETED:file_id
+                        try:
+                            file_id = int(message.split(":", 1)[1])
+                            
+                            # Remove from metadata
+                            if file_id in self.shared_files_metadata:
+                                filename = self.shared_files_metadata[file_id]['filename']
+                                del self.shared_files_metadata[file_id]
+                                
+                                # Update file list
+                                QTimer.singleShot(0, self.update_file_list)
+                                
+                                # Show notification
+                                notification = f"🗑️ File deleted: {filename}"
+                                QTimer.singleShot(0, lambda: self.display_chat_message(
+                                    "System", self.get_timestamp(), notification, is_system=True
+                                ))
+                        except Exception as e:
+                            print(f"[{self.get_timestamp()}] Error handling file deletion: {e}")
                     
                     elif message.startswith("PRESENTER:"):
                         # Update presenter status
@@ -865,242 +904,523 @@ class VideoConferenceClient:
     
     def create_gui(self):
         """Create the GUI"""
-        self.root = tk.Tk()
-        self.root.title(WINDOW_TITLE)
-        self.root.geometry("1400x800")  # Wider to accommodate screen sharing
-        self.root.minsize(1200, 600)  # Prevent shrinking too small
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        # Set window properties
+        self.setWindowTitle(WINDOW_TITLE)
+        self.resize(1400, 800)  # Wider to accommodate screen sharing
+        self.setMinimumSize(1200, 600)  # Prevent shrinking too small
         
-        # Initialize UI variables now that root exists
-        self.show_self_video = tk.BooleanVar(value=True)
-        self.microphone_on = tk.BooleanVar(value=True)
-        self.speaker_on = tk.BooleanVar(value=True)
-        self.layout_var = tk.StringVar(value="auto")
+        # Apply modern dark theme
+        self.setStyleSheet("""
+            /* Main Window */
+            QMainWindow {
+                background-color: #1e1e1e;
+            }
+            
+            /* General Widget Styling */
+            QWidget {
+                background-color: #1e1e1e;
+                color: #e0e0e0;
+                font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            
+            /* Labels */
+            QLabel {
+                color: #e0e0e0;
+                background-color: transparent;
+            }
+            
+            /* Buttons */
+            QPushButton {
+                background-color: #2d2d30;
+                color: #ffffff;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 10pt;
+            }
+            
+            QPushButton:hover {
+                background-color: #3e3e42;
+                border: 1px solid #007acc;
+            }
+            
+            QPushButton:pressed {
+                background-color: #007acc;
+            }
+            
+            QPushButton:disabled {
+                background-color: #2d2d30;
+                color: #656565;
+                border: 1px solid #3e3e42;
+            }
+            
+            /* CheckBoxes */
+            QCheckBox {
+                color: #e0e0e0;
+                spacing: 5px;
+            }
+            
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 3px;
+                border: 2px solid #3e3e42;
+                background-color: #2d2d30;
+            }
+            
+            QCheckBox::indicator:checked {
+                background-color: #007acc;
+                border: 2px solid #007acc;
+            }
+            
+            QCheckBox::indicator:hover {
+                border: 2px solid #007acc;
+            }
+            
+            /* ComboBox */
+            QComboBox {
+                background-color: #2d2d30;
+                color: #e0e0e0;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 5px;
+                min-width: 100px;
+            }
+            
+            QComboBox:hover {
+                border: 1px solid #007acc;
+            }
+            
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #e0e0e0;
+                margin-right: 5px;
+            }
+            
+            QComboBox QAbstractItemView {
+                background-color: #2d2d30;
+                color: #e0e0e0;
+                selection-background-color: #007acc;
+                selection-color: #ffffff;
+                border: 1px solid #3e3e42;
+            }
+            
+            /* LineEdit */
+            QLineEdit {
+                background-color: #2d2d30;
+                color: #e0e0e0;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            
+            QLineEdit:focus {
+                border: 1px solid #007acc;
+            }
+            
+            /* TextEdit (Chat) */
+            QTextEdit {
+                background-color: #252526;
+                color: #e0e0e0;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            
+            QTextEdit:focus {
+                border: 1px solid #007acc;
+            }
+            
+            /* ListWidget (Files) */
+            QListWidget {
+                background-color: #252526;
+                color: #e0e0e0;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+            }
+            
+            QListWidget::item {
+                padding: 5px;
+            }
+            
+            QListWidget::item:selected {
+                background-color: #007acc;
+                color: #ffffff;
+            }
+            
+            QListWidget::item:hover {
+                background-color: #2a2d2e;
+            }
+            
+            /* ScrollBar */
+            QScrollBar:vertical {
+                background-color: #1e1e1e;
+                width: 12px;
+                border: none;
+            }
+            
+            QScrollBar::handle:vertical {
+                background-color: #3e3e42;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            
+            QScrollBar::handle:vertical:hover {
+                background-color: #007acc;
+            }
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            
+            QScrollBar:horizontal {
+                background-color: #1e1e1e;
+                height: 12px;
+                border: none;
+            }
+            
+            QScrollBar::handle:horizontal {
+                background-color: #3e3e42;
+                border-radius: 6px;
+                min-width: 20px;
+            }
+            
+            QScrollBar::handle:horizontal:hover {
+                background-color: #007acc;
+            }
+            
+            /* GroupBox (File Sharing) */
+            QGroupBox {
+                color: #e0e0e0;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                margin-top: 10px;
+                padding-top: 10px;
+                font-weight: bold;
+            }
+            
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 5px;
+                color: #007acc;
+            }
+            
+            /* Frame (Video containers) */
+            QFrame {
+                background-color: #252526;
+                border: 1px solid #3e3e42;
+            }
+            
+            /* Progress Bar */
+            QProgressBar {
+                background-color: #2d2d30;
+                color: #e0e0e0;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                text-align: center;
+            }
+            
+            QProgressBar::chunk {
+                background-color: #007acc;
+                border-radius: 3px;
+            }
+            
+            /* Dialog */
+            QDialog {
+                background-color: #1e1e1e;
+            }
+            
+            /* MessageBox */
+            QMessageBox {
+                background-color: #1e1e1e;
+            }
+            
+            QMessageBox QLabel {
+                color: #e0e0e0;
+            }
+        """)
         
-        # Main container
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Initialize UI variables (Python variables instead of tk.*Var)
+        self.show_self_video = True
+        self.microphone_on = True
+        self.speaker_on = True
+        self.layout_mode = "auto"  # auto, tiled, spotlight
+        self.current_layout_mode = "tiled"  # Actual current mode after auto-decision
+        self.recipient_var = "Everyone"
         
-        # Configure grid weights
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(1, weight=1)
+        # Central widget and main layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         
-        # Top bar with connection info
-        top_frame = ttk.Frame(main_frame)
-        top_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         
-        self.status_label = ttk.Label(top_frame, text="Not Connected", font=("Arial", 10))
-        self.status_label.pack(side=tk.LEFT, padx=5)
+        # Top bar with connection info and controls
+        top_frame = QWidget()
+        top_layout = QHBoxLayout(top_frame)
+        top_layout.setContentsMargins(0, 0, 0, 10)
+        
+        # Status label
+        self.status_label = QLabel("Not Connected")
+        self.status_label.setFont(QFont("Arial", 10))
+        top_layout.addWidget(self.status_label)
         
         # Controls frame (center)
-        controls_frame = ttk.Frame(top_frame)
-        controls_frame.pack(side=tk.LEFT, padx=20, expand=True)
+        controls_widget = QWidget()
+        controls_layout = QHBoxLayout(controls_widget)
+        controls_layout.setContentsMargins(20, 0, 20, 0)
         
         # Self video toggle
-        self_video_check = ttk.Checkbutton(
-            controls_frame, 
-            text="📹 Camera",
-            variable=self.show_self_video,
-            command=self.toggle_self_video
-        )
-        self_video_check.pack(side=tk.LEFT, padx=5)
+        self.self_video_check = QCheckBox("📹 Camera")
+        self.self_video_check.setChecked(True)
+        self.self_video_check.toggled.connect(self.toggle_self_video)
+        controls_layout.addWidget(self.self_video_check)
         
         # Microphone toggle
-        mic_check = ttk.Checkbutton(
-            controls_frame,
-            text="🎤 Microphone",
-            variable=self.microphone_on,
-            command=self.toggle_microphone
-        )
-        mic_check.pack(side=tk.LEFT, padx=5)
+        self.mic_check = QCheckBox("🎤 Microphone")
+        self.mic_check.setChecked(True)
+        self.mic_check.toggled.connect(self.toggle_microphone)
+        controls_layout.addWidget(self.mic_check)
         
         # Speaker toggle
-        speaker_check = ttk.Checkbutton(
-            controls_frame,
-            text="🔊 Speaker",
-            variable=self.speaker_on,
-            command=self.toggle_speaker
-        )
-        speaker_check.pack(side=tk.LEFT, padx=5)
+        self.speaker_check = QCheckBox("🔊 Speaker")
+        self.speaker_check.setChecked(True)
+        self.speaker_check.toggled.connect(self.toggle_speaker)
+        controls_layout.addWidget(self.speaker_check)
         
         # Screen sharing button
-        self.share_screen_btn = ttk.Button(
-            controls_frame,
-            text="🖥️ Share Screen",
-            command=self.toggle_screen_sharing
-        )
-        self.share_screen_btn.pack(side=tk.LEFT, padx=5)
+        self.share_screen_btn = QPushButton("🖥️ Share Screen")
+        self.share_screen_btn.clicked.connect(self.toggle_screen_sharing)
+        controls_layout.addWidget(self.share_screen_btn)
         
-        # Layout selector
-        ttk.Label(controls_frame, text="Layout:").pack(side=tk.LEFT, padx=(15, 5))
-        layout_combo = ttk.Combobox(
-            controls_frame,
-            textvariable=self.layout_var,
-            values=["auto", "1x1", "2x2", "3x3", "4x4"],
-            state="readonly",
-            width=8
-        )
-        layout_combo.pack(side=tk.LEFT, padx=5)
-        layout_combo.bind("<<ComboboxSelected>>", self.change_layout)
+        # Layout selector - Google Meet style
+        controls_layout.addWidget(QLabel("Layout:"))
+        self.layout_combo = QComboBox()
+        self.layout_combo.addItems(["Auto", "Tiled", "Spotlight"])
+        self.layout_combo.setCurrentText("Auto")
+        self.layout_combo.currentTextChanged.connect(self.change_layout)
+        self.layout_combo.setMaximumWidth(100)
+        controls_layout.addWidget(self.layout_combo)
         
         # Audio device selectors
-        ttk.Label(controls_frame, text="Mic:").pack(side=tk.LEFT, padx=(15, 5))
-        self.input_device_combo = ttk.Combobox(
-            controls_frame,
-            state="readonly",
-            width=20
-        )
-        self.input_device_combo.pack(side=tk.LEFT, padx=5)
-        self.input_device_combo.bind("<<ComboboxSelected>>", self.on_input_device_changed)
+        controls_layout.addWidget(QLabel("Mic:"))
+        self.input_device_combo = QComboBox()
+        self.input_device_combo.currentTextChanged.connect(self.on_input_device_changed)
+        self.input_device_combo.setMaximumWidth(200)
+        controls_layout.addWidget(self.input_device_combo)
         
-        ttk.Label(controls_frame, text="Speaker:").pack(side=tk.LEFT, padx=(10, 5))
-        self.output_device_combo = ttk.Combobox(
-            controls_frame,
-            state="readonly",
-            width=20
-        )
-        self.output_device_combo.pack(side=tk.LEFT, padx=5)
-        self.output_device_combo.bind("<<ComboboxSelected>>", self.on_output_device_changed)
+        controls_layout.addWidget(QLabel("Speaker:"))
+        self.output_device_combo = QComboBox()
+        self.output_device_combo.currentTextChanged.connect(self.on_output_device_changed)
+        self.output_device_combo.setMaximumWidth(200)
+        controls_layout.addWidget(self.output_device_combo)
         
         # Refresh button for audio devices
-        refresh_btn = ttk.Button(
-            controls_frame,
-            text="🔄",
-            width=3,
-            command=self.refresh_audio_devices
-        )
-        refresh_btn.pack(side=tk.LEFT, padx=5)
+        refresh_btn = QPushButton("🔄")
+        refresh_btn.setMaximumWidth(30)
+        refresh_btn.clicked.connect(self.refresh_audio_devices)
+        controls_layout.addWidget(refresh_btn)
         
-        self.user_count_label = ttk.Label(top_frame, text="Users: 0", font=("Arial", 10))
-        self.user_count_label.pack(side=tk.RIGHT, padx=5)
+        controls_layout.addStretch()
+        top_layout.addWidget(controls_widget, stretch=1)
         
-        # Main content area - split between video grid, screen share, and chat
-        self.content_frame = ttk.Frame(main_frame)
-        self.content_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        self.content_frame.columnconfigure(0, weight=3)  # Video gets more space
-        self.content_frame.columnconfigure(1, weight=2)  # Screen share gets space (always allocated)
-        self.content_frame.columnconfigure(2, weight=1)  # Chat panel
-        self.content_frame.rowconfigure(0, weight=1)
+        # User count label
+        self.user_count_label = QLabel("Users: 0")
+        self.user_count_label.setFont(QFont("Arial", 10))
+        top_layout.addWidget(self.user_count_label)
         
-        # Video grid frame (left side)
-        self.video_frame = ttk.Frame(self.content_frame, relief=tk.SUNKEN, borderwidth=2)
-        self.video_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_layout.addWidget(top_frame)
         
-        # Screen share frame (right side - always visible to prevent resize)
-        self.screen_frame = ttk.Frame(self.content_frame, relief=tk.SUNKEN, borderwidth=2)
-        self.screen_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Main content area - Google Meet style layout
+        content_widget = QWidget()
+        content_layout = QHBoxLayout(content_widget)
+        content_layout.setSpacing(5)
+        content_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Screen share name label
-        self.screen_name_label = ttk.Label(self.screen_frame, text="", 
-                                           font=("Arial", 12, "bold"), anchor="center")
-        self.screen_name_label.pack(side=tk.TOP, pady=5)
+        # Main video area (will switch between tiled grid and spotlight)
+        self.main_video_container = QWidget()
+        self.main_video_layout = QVBoxLayout(self.main_video_container)
+        self.main_video_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Screen share display label
-        self.screen_label = ttk.Label(self.screen_frame, text="No screen being shared", 
-                                     font=("Arial", 14), anchor="center")
-        self.screen_label.pack(expand=True, fill=tk.BOTH)
+        # Video frame for tiled/grid mode
+        self.video_frame = QFrame()
+        self.video_frame.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        self.video_frame.setLineWidth(2)
+        self.main_video_layout.addWidget(self.video_frame)
+        
+        # Spotlight container (hidden by default)
+        self.spotlight_container = QWidget()
+        self.spotlight_layout = QHBoxLayout(self.spotlight_container)
+        self.spotlight_layout.setSpacing(5)
+        self.spotlight_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Spotlight main area (75% width)
+        self.spotlight_main = QFrame()
+        self.spotlight_main.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        self.spotlight_main.setLineWidth(2)
+        spotlight_main_layout = QVBoxLayout(self.spotlight_main)
+        
+        # Spotlight name label
+        self.spotlight_name_label = QLabel("")
+        self.spotlight_name_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        self.spotlight_name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        spotlight_main_layout.addWidget(self.spotlight_name_label)
+        
+        # Spotlight video label
+        self.spotlight_label = QLabel("No Content")
+        self.spotlight_label.setFont(QFont("Arial", 14))
+        self.spotlight_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.spotlight_label.setStyleSheet("background-color: black; color: white;")
+        spotlight_main_layout.addWidget(self.spotlight_label, stretch=1)
+        
+        self.spotlight_layout.addWidget(self.spotlight_main, stretch=3)
+        
+        # Sidebar for other participants (25% width, scrollable)
+        sidebar_container = QFrame()
+        sidebar_container.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        sidebar_container.setLineWidth(1)
+        sidebar_container.setMaximumWidth(250)
+        sidebar_layout = QVBoxLayout(sidebar_container)
+        sidebar_layout.setContentsMargins(2, 2, 2, 2)
+        
+        sidebar_header = QLabel("Participants")
+        sidebar_header.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        sidebar_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sidebar_layout.addWidget(sidebar_header)
+        
+        # Scrollable area for participant thumbnails
+        self.sidebar_scroll = QScrollArea()
+        self.sidebar_scroll.setWidgetResizable(True)
+        self.sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        
+        self.sidebar_widget = QWidget()
+        self.sidebar_widget_layout = QVBoxLayout(self.sidebar_widget)
+        self.sidebar_widget_layout.setSpacing(5)
+        self.sidebar_widget_layout.setContentsMargins(2, 2, 2, 2)
+        self.sidebar_widget_layout.addStretch()
+        
+        self.sidebar_scroll.setWidget(self.sidebar_widget)
+        sidebar_layout.addWidget(self.sidebar_scroll)
+        
+        self.spotlight_layout.addWidget(sidebar_container, stretch=1)
+        
+        # Add spotlight container to main layout (hidden initially)
+        self.main_video_layout.addWidget(self.spotlight_container)
+        self.spotlight_container.hide()
+        
+        content_layout.addWidget(self.main_video_container, stretch=3)
         
         # Chat panel (right side)
-        chat_container = ttk.Frame(self.content_frame, relief=tk.SUNKEN, borderwidth=2)
-        chat_container.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        chat_container = QFrame()
+        chat_container.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        chat_container.setLineWidth(2)
+        chat_layout = QVBoxLayout(chat_container)
         
         # Chat header
-        chat_header = ttk.Label(chat_container, text="💬 Chat", 
-                               font=("Arial", 12, "bold"), anchor="center")
-        chat_header.pack(side=tk.TOP, fill=tk.X, pady=5)
+        chat_header = QLabel("💬 Chat")
+        chat_header.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        chat_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        chat_layout.addWidget(chat_header)
         
-        # Chat display area with scrollbar
-        chat_display_frame = ttk.Frame(chat_container)
-        chat_display_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        chat_scrollbar = ttk.Scrollbar(chat_display_frame)
-        chat_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.chat_display = tk.Text(
-            chat_display_frame,
-            wrap=tk.WORD,
-            yscrollcommand=chat_scrollbar.set,
-            state=tk.DISABLED,
-            font=("Arial", 10),
-            bg="#f5f5f5"
+        # Chat display area (QTextEdit has built-in scrollbar)
+        self.chat_display = QTextEdit()
+        self.chat_display.setReadOnly(True)
+        self.chat_display.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | 
+            Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
-        self.chat_display.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        chat_scrollbar.config(command=self.chat_display.yview)
-        
-        # Configure chat text tags for styling
-        self.chat_display.tag_config("timestamp", foreground="#888888", font=("Arial", 8))
-        self.chat_display.tag_config("username", foreground="#0066cc", font=("Arial", 10, "bold"))
-        self.chat_display.tag_config("message", foreground="#000000", font=("Arial", 10))
-        self.chat_display.tag_config("system", foreground="#666666", font=("Arial", 9, "italic"))
-        self.chat_display.tag_config("private", foreground="#cc6600", font=("Arial", 10))
-        self.chat_display.tag_config("private_label", foreground="#cc0000", font=("Arial", 8, "italic"))
+        self.chat_display.setFont(QFont("Arial", 10))
+        # Explicitly set colors to ensure visibility
+        self.chat_display.setStyleSheet("""
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 5px;
+            }
+        """)
+        chat_layout.addWidget(self.chat_display, stretch=1)
         
         # Recipient selection area
-        recipient_frame = ttk.Frame(chat_container)
-        recipient_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=(0, 5))
+        recipient_widget = QWidget()
+        recipient_layout = QHBoxLayout(recipient_widget)
+        recipient_layout.setContentsMargins(0, 0, 0, 0)
         
-        ttk.Label(recipient_frame, text="To:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        recipient_layout.addWidget(QLabel("To:"))
         
-        self.recipient_var = tk.StringVar(value="Everyone")
-        self.recipient_combo = ttk.Combobox(
-            recipient_frame,
-            textvariable=self.recipient_var,
-            state="readonly",
-            width=20,
-            font=("Arial", 9)
-        )
-        self.recipient_combo['values'] = ["Everyone"]
-        self.recipient_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.recipient_combo = QComboBox()
+        self.recipient_combo.addItem("Everyone")
+        self.recipient_combo.setFont(QFont("Arial", 9))
+        recipient_layout.addWidget(self.recipient_combo, stretch=1)
         
         # Button to select multiple recipients
-        select_multiple_btn = ttk.Button(
-            recipient_frame,
-            text="Select Multiple...",
-            command=self.show_recipient_selector,
-            width=15
-        )
-        select_multiple_btn.pack(side=tk.LEFT)
+        select_multiple_btn = QPushButton("Select Multiple...")
+        select_multiple_btn.clicked.connect(self.show_recipient_selector)
+        recipient_layout.addWidget(select_multiple_btn)
+        
+        chat_layout.addWidget(recipient_widget)
         
         # Chat input area
-        chat_input_frame = ttk.Frame(chat_container)
-        chat_input_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
+        chat_input_widget = QWidget()
+        chat_input_layout = QHBoxLayout(chat_input_widget)
+        chat_input_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.chat_input = ttk.Entry(chat_input_frame, font=("Arial", 10))
-        self.chat_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        self.chat_input.bind('<Return>', lambda e: self.send_chat_message())
+        self.chat_input = QLineEdit()
+        self.chat_input.setFont(QFont("Arial", 10))
+        self.chat_input.returnPressed.connect(self.send_chat_message)
+        chat_input_layout.addWidget(self.chat_input, stretch=1)
         
-        send_btn = ttk.Button(chat_input_frame, text="Send", command=self.send_chat_message, width=8)
-        send_btn.pack(side=tk.RIGHT)
+        send_btn = QPushButton("Send")
+        send_btn.clicked.connect(self.send_chat_message)
+        send_btn.setMaximumWidth(80)
+        chat_input_layout.addWidget(send_btn)
+        
+        chat_layout.addWidget(chat_input_widget)
         
         # File sharing section
-        file_section = ttk.LabelFrame(chat_container, text="📁 Shared Files", padding=5)
-        file_section.pack(side=tk.BOTTOM, fill=tk.BOTH, padx=5, pady=(0, 5))
+        file_group = QGroupBox("📁 Shared Files")
+        file_layout = QVBoxLayout(file_group)
         
         # File upload button
-        upload_btn = ttk.Button(file_section, text="📤 Upload File", command=self.upload_file)
-        upload_btn.pack(fill=tk.X, pady=(0, 5))
+        upload_btn = QPushButton("📤 Upload File")
+        upload_btn.clicked.connect(self.upload_file)
+        file_layout.addWidget(upload_btn)
         
-        # File list with scrollbar
-        file_list_frame = ttk.Frame(file_section)
-        file_list_frame.pack(fill=tk.BOTH, expand=True)
+        # File list with checkboxes - using QListWidget with checkable items
+        self.file_listbox = QListWidget()
+        self.file_listbox.setFont(QFont("Arial", 9))
+        self.file_listbox.setMaximumHeight(120)
+        file_layout.addWidget(self.file_listbox)
         
-        file_scrollbar = ttk.Scrollbar(file_list_frame)
-        file_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # Buttons for file operations
+        file_buttons_widget = QWidget()
+        file_buttons_layout = QHBoxLayout(file_buttons_widget)
+        file_buttons_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.file_listbox = tk.Listbox(
-            file_list_frame,
-            yscrollcommand=file_scrollbar.set,
-            height=5,
-            font=("Arial", 9)
-        )
-        self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        file_scrollbar.config(command=self.file_listbox.yview)
+        download_btn = QPushButton("📥 Download")
+        download_btn.clicked.connect(self.download_selected_files)
+        file_buttons_layout.addWidget(download_btn)
         
-        # Download button
-        download_btn = ttk.Button(file_section, text="📥 Download Selected", command=self.download_file)
-        download_btn.pack(fill=tk.X, pady=(5, 0))
+        delete_btn = QPushButton("🗑️ Delete")
+        delete_btn.clicked.connect(self.delete_selected_files)
+        file_buttons_layout.addWidget(delete_btn)
+        
+        file_layout.addWidget(file_buttons_widget)
+        
+        chat_layout.addWidget(file_group)
+        
+        content_layout.addWidget(chat_container, stretch=1)
+        
+        main_layout.addWidget(content_widget, stretch=1)
         
         # Store file metadata: {file_id: {'filename': name, 'size': size, 'uploader': name}}
         self.shared_files_metadata = {}
@@ -1111,14 +1431,17 @@ class VideoConferenceClient:
         # Initialize audio device lists
         self.refresh_audio_devices()
         
+        # Connect signals for thread-safe GUI updates
+        self.chat_message_received.connect(self.display_chat_message)
+        self.chat_debug_signal.connect(lambda msg: self.chat_display.append(msg))
+        
         # Start GUI update loop
         self.update_gui()
-        
-        return self.root
     
     def toggle_self_video(self):
         """Toggle video capture on/off"""
-        if self.show_self_video.get():
+        self.show_self_video = self.self_video_check.isChecked()
+        if self.show_self_video:
             # Turn video ON - start capturing and transmitting
             self.start_video_capture()
         else:
@@ -1127,7 +1450,8 @@ class VideoConferenceClient:
     
     def toggle_microphone(self):
         """Toggle microphone on/off"""
-        if self.microphone_on.get():
+        self.microphone_on = self.mic_check.isChecked()
+        if self.microphone_on:
             # Turn microphone ON
             self.start_audio_capture()
         else:
@@ -1136,7 +1460,8 @@ class VideoConferenceClient:
     
     def toggle_speaker(self):
         """Toggle speaker on/off"""
-        if self.speaker_on.get():
+        self.speaker_on = self.speaker_check.isChecked()
+        if self.speaker_on:
             # Turn speaker ON
             self.start_audio_playback()
         else:
@@ -1146,28 +1471,28 @@ class VideoConferenceClient:
     def send_chat_message(self):
         """Send a chat message to the server"""
         if not self.connected:
-            messagebox.showwarning("Not Connected", "Please connect to the server first.")
+            QMessageBox.warning(self, "Not Connected", "Please connect to the server first.")
             return
         
-        message = self.chat_input.get().strip()
+        message = self.chat_input.text().strip()
         if not message:
             return
         
         try:
-            recipient = self.recipient_var.get()
+            recipient = self.recipient_combo.currentText()
             
             if recipient == "Everyone":
                 # Public message
-                chat_data = f"CHAT:{message}"
+                chat_data = f"CHAT:{message}\n"
                 self.tcp_socket.send(chat_data.encode('utf-8'))
             elif recipient.startswith("Multiple ("):
                 # Multiple recipients selected
                 if self.selected_recipients:
                     recipient_ids = ",".join(map(str, self.selected_recipients))
-                    chat_data = f"PRIVATE_CHAT:{recipient_ids}:{message}"
+                    chat_data = f"PRIVATE_CHAT:{recipient_ids}:{message}\n"
                     self.tcp_socket.send(chat_data.encode('utf-8'))
                 else:
-                    messagebox.showwarning("No Recipients", "Please select recipients first.")
+                    QMessageBox.warning(self, "No Recipients", "Please select recipients first.")
                     return
             else:
                 # Single recipient
@@ -1180,100 +1505,105 @@ class VideoConferenceClient:
                             break
                 
                 if recipient_id is not None:
-                    chat_data = f"PRIVATE_CHAT:{recipient_id}:{message}"
+                    chat_data = f"PRIVATE_CHAT:{recipient_id}:{message}\n"
                     self.tcp_socket.send(chat_data.encode('utf-8'))
                 else:
-                    messagebox.showerror("Error", "Recipient not found.")
+                    QMessageBox.critical(self, "Error", "Recipient not found.")
                     return
             
             # Clear input field
-            self.chat_input.delete(0, tk.END)
+            self.chat_input.clear()
             
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error sending chat message: {e}")
-            messagebox.showerror("Chat Error", f"Failed to send message: {e}")
+            QMessageBox.critical(self, "Chat Error", f"Failed to send message: {e}")
     
     def display_chat_message(self, username, timestamp, message, is_system=False, is_private=False, recipient_names=None):
         """Display a chat message in the chat window"""
-        self.chat_display.config(state=tk.NORMAL)
-        
         if is_system:
             # System message (e.g., user joined/left)
-            self.chat_display.insert(tk.END, f"{message}\n", "system")
+            text = f"[SYSTEM] {message}"
         elif is_private:
             # Private message
-            self.chat_display.insert(tk.END, f"{timestamp} ", "timestamp")
-            self.chat_display.insert(tk.END, "[Private] ", "private_label")
-            self.chat_display.insert(tk.END, f"{username}", "username")
-            if recipient_names:
-                self.chat_display.insert(tk.END, f" to {', '.join(recipient_names)}", "private_label")
-            self.chat_display.insert(tk.END, f": ", "username")
-            self.chat_display.insert(tk.END, f"{message}\n", "private")
+            recipient_text = f" to {', '.join(recipient_names)}" if recipient_names else ""
+            text = f"[{timestamp}] [PRIVATE] {username}{recipient_text}: {message}"
         else:
             # Regular chat message
-            self.chat_display.insert(tk.END, f"{timestamp} ", "timestamp")
-            self.chat_display.insert(tk.END, f"{username}: ", "username")
-            self.chat_display.insert(tk.END, f"{message}\n", "message")
+            text = f"[{timestamp}] {username}: {message}"
+        
+        self.chat_display.append(text)
         
         # Auto-scroll to bottom
-        self.chat_display.see(tk.END)
-        self.chat_display.config(state=tk.DISABLED)
+        scrollbar = self.chat_display.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
     
     def show_recipient_selector(self):
         """Show dialog to select multiple recipients"""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Select Recipients")
-        dialog.geometry("300x400")
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Recipients")
+        dialog.setFixedSize(300, 400)
+        dialog.setModal(True)
         
-        # Center dialog
-        dialog.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f"+{x}+{y}")
+        # Main layout
+        layout = QVBoxLayout(dialog)
         
         # Title
-        ttk.Label(dialog, text="Select recipients for private message:", 
-                 font=("Arial", 10, "bold")).pack(pady=10, padx=10)
+        title_label = QLabel("Select recipients for private message:")
+        title_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        layout.addWidget(title_label)
+        
+        # Scroll area for checkboxes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
         
         # Checkboxes for each user
-        check_vars = {}
-        check_frame = ttk.Frame(dialog)
-        check_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
+        check_boxes = {}
         with self.users_lock:
             for user_id, username in self.users.items():
                 if user_id != self.client_id:  # Don't include self
-                    var = tk.BooleanVar(value=(user_id in self.selected_recipients))
-                    check = ttk.Checkbutton(check_frame, text=username, variable=var)
-                    check.pack(anchor="w", pady=2)
-                    check_vars[user_id] = var
+                    checkbox = QCheckBox(username)
+                    checkbox.setChecked(user_id in self.selected_recipients)
+                    scroll_layout.addWidget(checkbox)
+                    check_boxes[user_id] = checkbox
+        
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
         
         def apply_selection():
-            self.selected_recipients = [uid for uid, var in check_vars.items() if var.get()]
+            self.selected_recipients = [uid for uid, cb in check_boxes.items() if cb.isChecked()]
             
             if self.selected_recipients:
                 # Update dropdown to show "Multiple (X users)"
                 count = len(self.selected_recipients)
-                self.recipient_var.set(f"Multiple ({count} user{'s' if count > 1 else ''})")
+                self.recipient_combo.setCurrentText(f"Multiple ({count} user{'s' if count > 1 else ''})")
             else:
-                self.recipient_var.set("Everyone")
+                self.recipient_combo.setCurrentText("Everyone")
             
-            dialog.destroy()
+            dialog.accept()
         
         # Buttons
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        btn_widget = QWidget()
+        btn_layout = QHBoxLayout(btn_widget)
         
-        ttk.Button(btn_frame, text="Apply", command=apply_selection).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
-        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, expand=True, fill=tk.X)
+        apply_btn = QPushButton("Apply")
+        apply_btn.clicked.connect(apply_selection)
+        btn_layout.addWidget(apply_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_layout.addWidget(cancel_btn)
+        
+        layout.addWidget(btn_widget)
+        
+        dialog.exec()
     
     def update_recipient_list(self):
         """Update the recipient dropdown with current users"""
         try:
-            current_selection = self.recipient_var.get()
+            current_selection = self.recipient_combo.currentText()
             
             # Build list of recipients
             recipients = ["Everyone"]
@@ -1284,11 +1614,14 @@ class VideoConferenceClient:
                         recipients.append(username)
             
             # Update combobox
-            self.recipient_combo['values'] = recipients
+            self.recipient_combo.clear()
+            self.recipient_combo.addItems(recipients)
             
             # Restore selection if still valid, otherwise reset to "Everyone"
             if current_selection not in recipients and not current_selection.startswith("Multiple"):
-                self.recipient_var.set("Everyone")
+                self.recipient_combo.setCurrentText("Everyone")
+            else:
+                self.recipient_combo.setCurrentText(current_selection)
                 self.selected_recipients = []
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error updating recipient list: {e}")
@@ -1296,12 +1629,11 @@ class VideoConferenceClient:
     def upload_file(self):
         """Upload a file to share with other users"""
         if not self.connected:
-            messagebox.showwarning("Not Connected", "Please connect to the server first.")
+            QMessageBox.warning(self, "Not Connected", "Please connect to the server first.")
             return
         
         # Open file dialog
-        from tkinter import filedialog
-        filepath = filedialog.askopenfilename(title="Select File to Share")
+        filepath, _ = QFileDialog.getOpenFileName(self, "Select File to Share")
         
         if not filepath:
             return
@@ -1313,26 +1645,32 @@ class VideoConferenceClient:
             
             # Check file size
             if filesize > MAX_FILE_SIZE:
-                messagebox.showerror("File Too Large", 
+                QMessageBox.critical(self, "File Too Large", 
                                    f"File size ({filesize / (1024*1024):.2f} MB) exceeds maximum allowed size ({MAX_FILE_SIZE / (1024*1024):.0f} MB).")
                 return
             
-            # Show progress dialog
-            progress_dialog = tk.Toplevel(self.root)
-            progress_dialog.title("Uploading File")
-            progress_dialog.geometry("400x150")
-            progress_dialog.resizable(False, False)
-            progress_dialog.transient(self.root)
+            # Create progress dialog
+            progress_dialog = QDialog(self)
+            progress_dialog.setWindowTitle("Uploading File")
+            progress_dialog.setFixedSize(400, 150)
+            progress_dialog.setModal(True)
             
-            ttk.Label(progress_dialog, text=f"Uploading: {filename}", 
-                     font=("Arial", 10, "bold")).pack(pady=10)
+            dialog_layout = QVBoxLayout(progress_dialog)
             
-            progress_var = tk.DoubleVar()
-            progress_bar = ttk.Progressbar(progress_dialog, variable=progress_var, maximum=100)
-            progress_bar.pack(fill=tk.X, padx=20, pady=10)
+            title_label = QLabel(f"Uploading: {filename}")
+            title_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+            dialog_layout.addWidget(title_label)
             
-            status_label = ttk.Label(progress_dialog, text="0%")
-            status_label.pack()
+            progress_bar = QProgressBar()
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(0)
+            dialog_layout.addWidget(progress_bar)
+            
+            status_label = QLabel("0%")
+            status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            dialog_layout.addWidget(status_label)
+            
+            progress_dialog.show()
             
             # Upload in background thread
             def do_upload():
@@ -1341,8 +1679,8 @@ class VideoConferenceClient:
                     file_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     file_sock.connect((self.server_address, SERVER_FILE_PORT))
                     
-                    # Send upload command
-                    command = f"UPLOAD:{self.client_id}:{filename}:{filesize}"
+                    # Send upload command with newline delimiter
+                    command = f"UPLOAD:{self.client_id}:{filename}:{filesize}\n"
                     file_sock.send(command.encode('utf-8'))
                     
                     # Send file data
@@ -1355,85 +1693,157 @@ class VideoConferenceClient:
                             file_sock.sendall(chunk)
                             sent += len(chunk)
                             
-                            # Update progress
+                            # Update progress using QTimer.singleShot for thread safety
                             percent = (sent / filesize) * 100
-                            self.root.after(0, lambda p=percent: progress_var.set(p))
-                            self.root.after(0, lambda p=percent: status_label.config(text=f"{p:.1f}%"))
+                            QTimer.singleShot(0, lambda p=percent: progress_bar.setValue(int(p)))
+                            QTimer.singleShot(0, lambda p=percent: status_label.setText(f"{p:.1f}%"))
                     
                     # Wait for response
                     response = file_sock.recv(1024).decode('utf-8')
                     file_sock.close()
                     
                     if response.startswith("SUCCESS"):
-                        self.root.after(0, progress_dialog.destroy)
-                        self.root.after(0, lambda: messagebox.showinfo("Success", f"File '{filename}' uploaded successfully!"))
+                        QTimer.singleShot(0, progress_dialog.close)
+                        QTimer.singleShot(0, lambda: QMessageBox.information(self, "Success", f"File '{filename}' uploaded successfully!"))
                     else:
-                        self.root.after(0, progress_dialog.destroy)
-                        self.root.after(0, lambda: messagebox.showerror("Upload Failed", "File upload failed on server."))
+                        QTimer.singleShot(0, progress_dialog.close)
+                        QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Upload Failed", "File upload failed on server."))
                     
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error uploading file: {e}")
-                    self.root.after(0, progress_dialog.destroy)
-                    self.root.after(0, lambda: messagebox.showerror("Upload Error", f"Failed to upload file: {e}"))
+                    QTimer.singleShot(0, progress_dialog.close)
+                    QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Upload Error", f"Failed to upload file: {e}"))
             
             threading.Thread(target=do_upload, daemon=True).start()
             
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to upload file: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to upload file: {e}")
     
-    def download_file(self):
-        """Download the selected file"""
+    def download_selected_files(self):
+        """Download all checked files"""
         if not self.connected:
-            messagebox.showwarning("Not Connected", "Please connect to the server first.")
+            QMessageBox.warning(self, "Not Connected", "Please connect to the server first.")
             return
         
-        # Get selected file
-        selection = self.file_listbox.curselection()
-        if not selection:
-            messagebox.showwarning("No Selection", "Please select a file to download.")
+        # Get all checked items
+        checked_items = []
+        for i in range(self.file_listbox.count()):
+            item = self.file_listbox.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                file_id = item.data(Qt.ItemDataRole.UserRole)
+                checked_items.append((file_id, item))
+        
+        if not checked_items:
+            QMessageBox.warning(self, "No Selection", "Please check files to download.")
             return
         
-        idx = selection[0]
-        file_text = self.file_listbox.get(idx)
+        # Download each file
+        for file_id, item in checked_items:
+            if file_id in self.shared_files_metadata:
+                self._download_single_file(file_id)
+    
+    def delete_selected_files(self):
+        """Delete all checked files (only your uploads)"""
+        if not self.connected:
+            QMessageBox.warning(self, "Not Connected", "Please connect to the server first.")
+            return
         
-        # Extract file_id from the text (format: "filename (size) - uploader [ID: file_id]")
-        try:
-            file_id = int(file_text.split("[ID: ")[1].rstrip("]"))
-            file_info = self.shared_files_metadata[file_id]
-            filename = file_info['filename']
-            filesize = file_info['size']
+        # Get all checked items that belong to this user
+        checked_own_files = []
+        checked_other_files = []
+        
+        for i in range(self.file_listbox.count()):
+            item = self.file_listbox.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                file_id = item.data(Qt.ItemDataRole.UserRole)
+                uploader_id = item.data(Qt.ItemDataRole.UserRole + 1)
+                
+                if uploader_id == self.client_id:
+                    checked_own_files.append(file_id)
+                else:
+                    checked_other_files.append(file_id)
+        
+        if not checked_own_files and not checked_other_files:
+            QMessageBox.warning(self, "No Selection", "Please check files to delete.")
+            return
+        
+        if checked_other_files:
+            QMessageBox.warning(self, "Not Authorized", 
+                              f"You can only delete your own uploads. {len(checked_other_files)} file(s) skipped.")
+        
+        if not checked_own_files:
+            return
+        
+        # Confirm deletion
+        reply = QMessageBox.question(self, "Confirm Delete", 
+                                    f"Delete {len(checked_own_files)} file(s)?",
+                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            for file_id in checked_own_files:
+                self._delete_single_file(file_id)
+    
+    def _delete_single_file(self, file_id):
+        """Delete a single file on the server"""
+        def do_delete():
+            try:
+                # Connect to file transfer port
+                file_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                file_sock.connect((self.server_address, SERVER_FILE_PORT))
+                
+                # Send delete request
+                command = f"DELETE:{file_id}:{self.client_id}\n"
+                file_sock.send(command.encode('utf-8'))
+                
+                # Wait for response
+                response = file_sock.recv(1024).decode('utf-8')
+                file_sock.close()
+                
+                if response.startswith("DELETE_SUCCESS"):
+                    print(f"[{self.get_timestamp()}] File {file_id} deleted successfully")
+                elif response.startswith("ERROR"):
+                    error_msg = response.split(":", 1)[1] if ":" in response else "Unknown error"
+                    QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Delete Failed", error_msg))
+                    
+            except Exception as e:
+                print(f"[{self.get_timestamp()}] Error deleting file: {e}")
+                QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Delete Error", 
+                                                                 f"Failed to delete file: {e}"))
+        
+        threading.Thread(target=do_delete, daemon=True).start()
+    
+    def _download_single_file(self, file_id):
+        """Download a single file - helper method"""
+        if file_id not in self.shared_files_metadata:
+            return
             
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to get file info: {e}")
-            return
+        file_info = self.shared_files_metadata[file_id]
+        filename = file_info['filename']
+        filesize = file_info['size']
         
-        # Choose save location
-        from tkinter import filedialog
-        save_path = filedialog.asksaveasfilename(
-            title="Save File As",
-            initialfile=filename,
-            defaultextension=os.path.splitext(filename)[1]
-        )
-        
+        # Ask where to save
+        save_path, _ = QFileDialog.getSaveFileName(self, "Save File", filename)
         if not save_path:
             return
         
-        # Show progress dialog
-        progress_dialog = tk.Toplevel(self.root)
-        progress_dialog.title("Downloading File")
-        progress_dialog.geometry("400x150")
-        progress_dialog.resizable(False, False)
-        progress_dialog.transient(self.root)
+        # Create progress dialog
+        progress_dialog = QDialog(self)
+        progress_dialog.setWindowTitle(f"Downloading {filename}")
+        progress_dialog.setModal(True)
+        progress_dialog.setFixedSize(400, 100)
         
-        ttk.Label(progress_dialog, text=f"Downloading: {filename}", 
-                 font=("Arial", 10, "bold")).pack(pady=10)
+        dialog_layout = QVBoxLayout(progress_dialog)
         
-        progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(progress_dialog, variable=progress_var, maximum=100)
-        progress_bar.pack(fill=tk.X, padx=20, pady=10)
+        progress_bar = QProgressBar()
+        progress_bar.setMaximum(100)
+        progress_bar.setValue(0)
+        dialog_layout.addWidget(progress_bar)
         
-        status_label = ttk.Label(progress_dialog, text="0%")
-        status_label.pack()
+        status_label = QLabel("0%")
+        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dialog_layout.addWidget(status_label)
+        
+        progress_dialog.show()
         
         # Download in background thread
         def do_download():
@@ -1442,8 +1852,8 @@ class VideoConferenceClient:
                 file_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 file_sock.connect((self.server_address, SERVER_FILE_PORT))
                 
-                # Send download request
-                command = f"DOWNLOAD:{file_id}"
+                # Send download request with newline delimiter
+                command = f"DOWNLOAD:{file_id}\n"
                 file_sock.send(command.encode('utf-8'))
                 
                 # Receive file info
@@ -1460,43 +1870,168 @@ class VideoConferenceClient:
                             f.write(chunk)
                             received += len(chunk)
                             
-                            # Update progress
+                            # Update progress using QTimer.singleShot for thread safety
                             percent = (received / filesize) * 100
-                            self.root.after(0, lambda p=percent: progress_var.set(p))
-                            self.root.after(0, lambda p=percent: status_label.config(text=f"{p:.1f}%"))
+                            QTimer.singleShot(0, lambda p=percent: progress_bar.setValue(int(p)))
+                            QTimer.singleShot(0, lambda p=percent: status_label.setText(f"{p:.1f}%"))
                     
                     file_sock.close()
                     
                     if received == filesize:
-                        self.root.after(0, progress_dialog.destroy)
-                        self.root.after(0, lambda: messagebox.showinfo("Success", f"File '{filename}' downloaded successfully!"))
+                        QTimer.singleShot(0, progress_dialog.close)
+                        QTimer.singleShot(0, lambda: QMessageBox.information(self, "Success", 
+                                                                             f"File '{filename}' downloaded successfully!"))
                     else:
-                        self.root.after(0, progress_dialog.destroy)
-                        self.root.after(0, lambda: messagebox.showerror("Download Failed", "File download incomplete."))
+                        QTimer.singleShot(0, progress_dialog.close)
+                        QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Failed", 
+                                                                         "File download incomplete."))
                 else:
                     file_sock.close()
-                    self.root.after(0, progress_dialog.destroy)
-                    self.root.after(0, lambda: messagebox.showerror("Download Failed", "File not found on server."))
+                    QTimer.singleShot(0, progress_dialog.close)
+                    QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Failed", 
+                                                                     "File not found on server."))
                     
             except Exception as e:
                 print(f"[{self.get_timestamp()}] Error downloading file: {e}")
-                self.root.after(0, progress_dialog.destroy)
-                self.root.after(0, lambda: messagebox.showerror("Download Error", f"Failed to download file: {e}"))
+                QTimer.singleShot(0, progress_dialog.close)
+                QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Error", 
+                                                                 f"Failed to download file: {e}"))
+        
+        threading.Thread(target=do_download, daemon=True).start()
+    
+    def download_file(self):
+        """Download the selected file"""
+        if not self.connected:
+            QMessageBox.warning(self, "Not Connected", "Please connect to the server first.")
+            return
+        
+        # Get selected file
+        current_item = self.file_listbox.currentRow()
+        if current_item < 0:
+            QMessageBox.warning(self, "No Selection", "Please select a file to download.")
+            return
+        
+        file_text = self.file_listbox.item(current_item).text()
+        
+        # Extract file_id from the text (format: "filename (size) - uploader [ID: file_id]")
+        try:
+            file_id = int(file_text.split("[ID: ")[1].rstrip("]"))
+            file_info = self.shared_files_metadata[file_id]
+            filename = file_info['filename']
+            filesize = file_info['size']
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to get file info: {e}")
+            return
+        
+        # Choose save location
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save File As",
+            filename,
+            f"All Files (*.*)"
+        )
+        
+        if not save_path:
+            return
+        
+        # Create progress dialog
+        progress_dialog = QDialog(self)
+        progress_dialog.setWindowTitle("Downloading File")
+        progress_dialog.setFixedSize(400, 150)
+        progress_dialog.setModal(True)
+        
+        dialog_layout = QVBoxLayout(progress_dialog)
+        
+        title_label = QLabel(f"Downloading: {filename}")
+        title_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        dialog_layout.addWidget(title_label)
+        
+        progress_bar = QProgressBar()
+        progress_bar.setRange(0, 100)
+        progress_bar.setValue(0)
+        dialog_layout.addWidget(progress_bar)
+        
+        status_label = QLabel("0%")
+        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dialog_layout.addWidget(status_label)
+        
+        progress_dialog.show()
+        
+        # Download in background thread
+        def do_download():
+            try:
+                # Connect to file transfer port
+                file_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                file_sock.connect((self.server_address, SERVER_FILE_PORT))
+                
+                # Send download request with newline delimiter
+                command = f"DOWNLOAD:{file_id}\n"
+                file_sock.send(command.encode('utf-8'))
+                
+                # Receive file info
+                response = file_sock.recv(1024).decode('utf-8')
+                if response.startswith("FILE:"):
+                    # Receive file data
+                    with open(save_path, 'wb') as f:
+                        received = 0
+                        while received < filesize:
+                            chunk_size = min(FILE_CHUNK_SIZE, filesize - received)
+                            chunk = file_sock.recv(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            received += len(chunk)
+                            
+                            # Update progress using QTimer.singleShot for thread safety
+                            percent = (received / filesize) * 100
+                            QTimer.singleShot(0, lambda p=percent: progress_bar.setValue(int(p)))
+                            QTimer.singleShot(0, lambda p=percent: status_label.setText(f"{p:.1f}%"))
+                    
+                    file_sock.close()
+                    
+                    if received == filesize:
+                        QTimer.singleShot(0, progress_dialog.close)
+                        QTimer.singleShot(0, lambda: QMessageBox.information(self, "Success", f"File '{filename}' downloaded successfully!"))
+                    else:
+                        QTimer.singleShot(0, progress_dialog.close)
+                        QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Failed", "File download incomplete."))
+                else:
+                    file_sock.close()
+                    QTimer.singleShot(0, progress_dialog.close)
+                    QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Failed", "File not found on server."))
+                    
+            except Exception as e:
+                print(f"[{self.get_timestamp()}] Error downloading file: {e}")
+                QTimer.singleShot(0, progress_dialog.close)
+                QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Error", f"Failed to download file: {e}"))
         
         threading.Thread(target=do_download, daemon=True).start()
     
     def update_file_list(self):
         """Update the file listbox with available files"""
-        self.file_listbox.delete(0, tk.END)
+        self.file_listbox.clear()
         
         for file_id, info in self.shared_files_metadata.items():
             filename = info['filename']
             size_mb = info['size'] / (1024 * 1024)
             uploader = info['uploader']
+            uploader_id = info['uploader_id']
             
-            # Format: "filename (size) - uploader [ID: file_id]"
-            display_text = f"{filename} ({size_mb:.2f} MB) - {uploader} [ID: {file_id}]"
-            self.file_listbox.insert(tk.END, display_text)
+            # Format display text
+            is_own_file = (uploader_id == self.client_id)
+            display_text = f"{filename} ({size_mb:.2f} MB) - {uploader}"
+            if is_own_file:
+                display_text += " (Your upload)"
+            
+            # Create list item with checkbox
+            item = QListWidgetItem(display_text)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, file_id)  # Store file_id in item
+            item.setData(Qt.ItemDataRole.UserRole + 1, uploader_id)  # Store uploader_id
+            
+            self.file_listbox.addItem(item)
     
     def toggle_screen_sharing(self):
         """Toggle screen sharing on/off"""
@@ -1506,14 +2041,14 @@ class VideoConferenceClient:
                 try:
                     if self.start_screen_sharing():
                         # Update button on success (must be done in main thread)
-                        self.root.after(0, lambda: self.share_screen_btn.config(text="🛑 Stop Sharing"))
+                        QTimer.singleShot(0, lambda: self.share_screen_btn.setText("🛑 Stop Sharing"))
                     else:
                         # Revert on failure
-                        self.root.after(0, lambda: messagebox.showwarning("Screen Sharing", 
+                        QTimer.singleShot(0, lambda: QMessageBox.warning(self, "Screen Sharing", 
                                                                           "Could not start screen sharing. Another user may be presenting."))
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error in start_in_background: {e}")
-                    self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to start screen sharing: {e}"))
+                    QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", f"Failed to start screen sharing: {e}"))
             
             threading.Thread(target=start_in_background, daemon=True).start()
             self.is_presenting = True  # Optimistically set
@@ -1522,103 +2057,215 @@ class VideoConferenceClient:
             def stop_in_background():
                 try:
                     self.stop_screen_sharing()
-                    self.root.after(0, lambda: self.share_screen_btn.config(text="🖥️ Share Screen"))
+                    QTimer.singleShot(0, lambda: self.share_screen_btn.setText("🖥️ Share Screen"))
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error in stop_in_background: {e}")
             
             threading.Thread(target=stop_in_background, daemon=True).start()
             self.is_presenting = False
-            self.share_screen_btn.config(text="🖥️ Share Screen")  # Update immediately
+            self.share_screen_btn.setText("🖥️ Share Screen")  # Update immediately
     
     def change_layout(self, event=None):
-        """Change video grid layout"""
-        layout = self.layout_var.get()
-        self.current_layout = layout
-        self.create_video_grid()
+        """Change video layout mode (Google Meet style)"""
+        self.layout_mode = self.layout_combo.currentText().lower()
+        self.determine_and_apply_layout()
+    
+    def determine_and_apply_layout(self):
+        """Determine the actual layout based on mode and current state"""
+        # Auto mode: smart switching based on context
+        if self.layout_mode == "auto":
+            if self.current_presenter_id is not None:
+                # Screen sharing active - use spotlight
+                self.current_layout_mode = "spotlight"
+            elif len(self.video_streams) > 4:
+                # Many participants - use spotlight (could also detect active speaker)
+                self.current_layout_mode = "spotlight"
+            else:
+                # Few participants - use tiled
+                self.current_layout_mode = "tiled"
+        else:
+            # Manual mode selection
+            self.current_layout_mode = self.layout_mode
+        
+        # Apply the layout
+        self.apply_layout()
+    
+    def apply_layout(self):
+        """Apply the current layout mode"""
+        if self.current_layout_mode == "tiled":
+            # Show tiled grid, hide spotlight
+            self.video_frame.show()
+            self.spotlight_container.hide()
+            self.create_video_grid()
+        elif self.current_layout_mode == "spotlight":
+            # Show spotlight, hide tiled grid
+            self.video_frame.hide()
+            self.spotlight_container.show()
+            self.update_spotlight_layout()
     
     def calculate_grid_size(self, num_videos):
-        """Calculate optimal grid size based on number of videos and layout setting"""
-        if self.current_layout == "auto":
-            # Automatic layout based on number of videos
-            if num_videos <= 1:
-                return 1, 1
-            elif num_videos <= 4:
-                return 2, 2
-            elif num_videos <= 9:
-                return 3, 3
-            else:
-                return 4, 4
+        """Calculate optimal grid size based on number of videos"""
+        # Automatic layout based on number of videos
+        if num_videos <= 1:
+            return 1, 1
+        elif num_videos <= 4:
+            return 2, 2
+        elif num_videos <= 9:
+            return 3, 3
         else:
-            # Fixed layout
-            size = int(self.current_layout[0])  # Extract number from "1x1", "2x2", etc.
-            return size, size
+            return 4, 4
     
     def create_video_grid(self):
-        """Create a dynamic grid of video display labels"""
+        """Create a dynamic grid of video display labels (Tiled mode - Google Meet style)"""
         # Clear existing grid
-        for widget in self.video_frame.winfo_children():
-            widget.destroy()
+        if self.video_frame.layout() is not None:
+            QWidget().setLayout(self.video_frame.layout())  # Clear the layout
+        
+        grid_layout = QGridLayout(self.video_frame)
+        grid_layout.setSpacing(5)
         
         self.video_labels = {}
         
-        # Get maximum grid size based on current layout
-        if self.current_layout == "auto":
-            max_size = 4  # Default max for auto
-        else:
-            max_size = int(self.current_layout[0])
+        # Calculate how many tiles we need (participants + screen share if active)
+        num_participants = len(self.video_streams) + 1  # +1 for self
+        has_screen_share = self.current_presenter_id is not None
+        total_tiles = num_participants + (1 if has_screen_share else 0)
         
-        # Configure grid weights
-        for i in range(max_size):
-            self.video_frame.columnconfigure(i, weight=1)
-            self.video_frame.rowconfigure(i, weight=1)
+        # Get grid size
+        rows, cols = self.calculate_grid_size(total_tiles)
+        max_tiles = rows * cols
         
         # Create grid positions
         idx = 0
-        for row in range(max_size):
-            for col in range(max_size):
+        for row in range(rows):
+            for col in range(cols):
+                if idx >= max_tiles:
+                    break
+                    
                 # Container frame for each video
-                container = ttk.Frame(self.video_frame, relief=tk.RAISED, borderwidth=1)
-                container.grid(row=row, column=col, padx=5, pady=5, sticky=(tk.W, tk.E, tk.N, tk.S))
-                
-                # Configure container to expand uniformly
-                container.columnconfigure(0, weight=1)
-                container.rowconfigure(1, weight=1)
+                container = QFrame()
+                container.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+                container.setLineWidth(1)
+                container_layout = QVBoxLayout(container)
+                container_layout.setContentsMargins(2, 2, 2, 2)
                 
                 # Username label
-                username_label = ttk.Label(container, text="", font=("Arial", 9, "bold"), anchor="center")
-                username_label.grid(row=0, column=0, pady=2, sticky=(tk.W, tk.E))
+                username_label = QLabel("")
+                username_label.setFont(QFont("Arial", 9, QFont.Weight.Bold))
+                username_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                container_layout.addWidget(username_label)
                 
-                # Video label - centered and uniform with fixed minimum size
-                video_label = tk.Label(container, bg="black", text="No Video", anchor="center")
-                video_label.grid(row=1, column=0, padx=2, pady=2, sticky=(tk.W, tk.E, tk.N, tk.S))
+                # Video label - centered with black background
+                video_label = QLabel("No Video")
+                video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                video_label.setStyleSheet("background-color: black; color: white;")
+                video_label.setMinimumSize(160, 120)  # Minimum size in pixels
+                video_label.setScaledContents(False)  # We'll handle scaling ourselves
+                container_layout.addWidget(video_label, stretch=1)
                 
-                # Set minimum size for the video label to ensure uniformity
-                video_label.config(width=40, height=20)  # Minimum size in character units
+                grid_layout.addWidget(container, row, col)
                 
                 self.video_labels[idx] = {
                     'container': container,
                     'username': username_label,
                     'video': video_label,
-                    'client_id': None
+                    'client_id': None,
+                    'is_screen': False  # Track if this tile shows screen share
                 }
                 idx += 1
     
-    def update_gui(self):
-        """Update GUI with current video frames"""
-        if not self.root:
-            return
+    def update_spotlight_layout(self):
+        """Update spotlight mode layout - main content + sidebar thumbnails"""
+        # Clear existing sidebar widgets
+        for i in reversed(range(self.sidebar_widget_layout.count())):
+            widget = self.sidebar_widget_layout.itemAt(i).widget()
+            if widget is not None and widget != self.sidebar_widget_layout.itemAt(self.sidebar_widget_layout.count() - 1).widget():
+                widget.deleteLater()
         
+        # Determine spotlight content (screen share takes priority, then active speaker)
+        spotlight_client_id = None
+        spotlight_is_screen = False
+        
+        if self.current_presenter_id is not None:
+            # Screen sharing is active - show in spotlight
+            spotlight_client_id = self.current_presenter_id
+            spotlight_is_screen = True
+        else:
+            # No screen share - show first participant (or implement speaker detection later)
+            with self.streams_lock:
+                if len(self.video_streams) > 0:
+                    spotlight_client_id = list(self.video_streams.keys())[0]
+        
+        # Store for update_gui to use
+        self.spotlight_client_id = spotlight_client_id
+        self.spotlight_is_screen = spotlight_is_screen
+        
+        # Create sidebar thumbnails for other participants
+        participants_to_show = []
+        
+        # Add self if showing self video
+        if self.show_self_video:
+            participants_to_show.append(('self', self.client_id, self.username))
+        
+        # Add other participants (excluding spotlight participant if it's a video)
+        with self.streams_lock:
+            with self.users_lock:
+                for client_id in self.video_streams.keys():
+                    if not spotlight_is_screen and client_id == spotlight_client_id:
+                        continue  # Skip the spotlight participant
+                    username = self.users.get(client_id, f"User {client_id}")
+                    participants_to_show.append(('other', client_id, username))
+        
+        # Create thumbnail widgets
+        for participant_type, client_id, username in participants_to_show:
+            thumbnail = self.create_sidebar_thumbnail(participant_type, client_id, username)
+            self.sidebar_widget_layout.insertWidget(self.sidebar_widget_layout.count() - 1, thumbnail)
+    
+    def create_sidebar_thumbnail(self, participant_type, client_id, username):
+        """Create a thumbnail widget for the sidebar"""
+        container = QFrame()
+        container.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        container.setLineWidth(1)
+        container.setMaximumHeight(100)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+        
+        # Username label
+        name_label = QLabel(username)
+        name_label.setFont(QFont("Arial", 8, QFont.Weight.Bold))
+        name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(name_label)
+        
+        # Video thumbnail
+        video_label = QLabel("No Video")
+        video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        video_label.setStyleSheet("background-color: black; color: white;")
+        video_label.setMinimumSize(80, 60)
+        video_label.setMaximumSize(200, 150)
+        video_label.setScaledContents(False)
+        layout.addWidget(video_label, stretch=1)
+        
+        # Store reference for updates
+        container.video_label = video_label
+        container.client_id = client_id
+        container.participant_type = participant_type
+        
+        return container
+    
+    def update_gui(self):
+        """Update GUI with current video frames (Google Meet style - supports Tiled and Spotlight modes)"""
         try:
             # Update status
             if self.connected:
-                self.status_label.config(text=f"Connected as: {self.username} (ID: {self.client_id})")
+                self.status_label.setText(f"Connected as: {self.username} (ID: {self.client_id})")
                 
                 with self.users_lock:
-                    self.user_count_label.config(text=f"Users: {len(self.users)}")
+                    self.user_count_label.setText(f"Users: {len(self.users)}")
             
-            # Update video streams
+            # Clean up stale video streams
             with self.streams_lock:
-                # Clean up stale video streams (no frame received in last 2 seconds)
                 current_time = time.time()
                 stale_clients = []
                 for client_id, last_update in self.video_stream_timestamps.items():
@@ -1630,159 +2277,232 @@ class VideoConferenceClient:
                         del self.video_streams[client_id]
                     del self.video_stream_timestamps[client_id]
                     print(f"[{self.get_timestamp()}] Removed stale video stream for user {client_id}")
-                
-                client_ids = list(self.video_streams.keys())
             
-            # Build display streams from other clients only
-            display_streams = {}
+            # Re-evaluate layout if screen sharing state changed
+            old_presenter = getattr(self, '_last_presenter_id', None)
+            if old_presenter != self.current_presenter_id:
+                self._last_presenter_id = self.current_presenter_id
+                if self.layout_mode == "auto":
+                    self.determine_and_apply_layout()
             
-            # Other clients' video (only active streams)
-            with self.streams_lock:
-                for client_id, frame in self.video_streams.items():
-                    display_streams[client_id] = frame
-            
-            # Self video (from camera) - only if capturing
-            if self.capturing and self.camera is not None:
-                ret, frame = self.camera.read()
-                if ret:
-                    display_streams[self.client_id] = frame
-            
-            # Calculate optimal grid size
-            num_videos = len(display_streams)
-            rows, cols = self.calculate_grid_size(num_videos)
-            
-            # Calculate uniform video size based on grid - all videos same size
-            container_width = self.video_frame.winfo_width()
-            container_height = self.video_frame.winfo_height()
-            
-            if container_width > 1 and container_height > 1:
-                # Calculate available space per cell
-                cell_width = (container_width // cols) - 20  # Account for padding
-                cell_height = (container_height // rows) - 50  # Account for padding and username label
-                
-                # Maintain 4:3 aspect ratio and fit within cell
-                aspect_ratio = 4.0 / 3.0
-                
-                # Try fitting by width first
-                video_width = max(160, cell_width)
-                video_height = int(video_width / aspect_ratio)
-                
-                # If height exceeds cell, fit by height instead
-                if video_height > cell_height:
-                    video_height = max(120, cell_height)
-                    video_width = int(video_height * aspect_ratio)
-            else:
-                video_width = 320
-                video_height = 240
-            
-            # Update video grid
-            display_index = 0
-            for idx, label_info in self.video_labels.items():
-                if display_index < len(display_streams):
-                    client_id = list(display_streams.keys())[display_index]
-                    frame = display_streams[client_id]
-                    
-                    # Get username
-                    with self.users_lock:
-                        username = self.users.get(client_id, f"User {client_id}")
-                    
-                    if client_id == self.client_id:
-                        username = f"{username} (You)"
-                    
-                    # Update username label
-                    label_info['username'].config(text=username)
-                    
-                    # Convert and display frame - use SAME size for ALL videos
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    frame_resized = cv2.resize(frame_rgb, (video_width, video_height))
-                    
-                    img = Image.fromarray(frame_resized)
-                    imgtk = ImageTk.PhotoImage(image=img)
-                    
-                    # Set image and ensure label maintains fixed size
-                    label_info['video'].config(image=imgtk, text="", width=video_width, height=video_height)
-                    label_info['video'].image = imgtk
-                    label_info['client_id'] = client_id
-                    
-                    # Make container visible
-                    label_info['container'].grid()
-                    display_index += 1
-                else:
-                    # Hide unused slots in auto mode, show "No Video" in manual mode
-                    if self.current_layout == "auto":
-                        # Hide the container completely in auto mode
-                        label_info['container'].grid_remove()
-                    else:
-                        # Show "No Video" placeholder in manual mode with same size
-                        label_info['username'].config(text="")
-                        
-                        # Create a black placeholder image with same dimensions as videos
-                        placeholder = Image.new('RGB', (video_width, video_height), color='black')
-                        placeholder_tk = ImageTk.PhotoImage(image=placeholder)
-                        
-                        label_info['video'].config(image=placeholder_tk, text="No Video", compound="center", 
-                                                   fg="white", width=video_width, height=video_height)
-                        label_info['video'].image = placeholder_tk
-                        label_info['container'].grid()
-                    
-                    label_info['client_id'] = None
-            
-            # Update shared screen display
-            with self.screen_lock:
-                screen_frame_copy = self.shared_screen_frame
-            
-            if screen_frame_copy is not None and self.current_presenter_id is not None:
-                # Decode and display screen frame
-                try:
-                    nparr = np.frombuffer(screen_frame_copy, np.uint8)
-                    screen_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    
-                    if screen_img is not None:
-                        # Resize to fit screen area dynamically based on available space
-                        screen_frame_width = self.screen_frame.winfo_width()
-                        if screen_frame_width > 100:  # Only resize if frame has size
-                            screen_width = max(300, screen_frame_width - 20)  # With padding
-                        else:
-                            screen_width = 500  # Default size
-                        
-                        aspect = screen_img.shape[1] / screen_img.shape[0]
-                        screen_height = int(screen_width / aspect)
-                        
-                        screen_img = cv2.resize(screen_img, (screen_width, screen_height))
-                        
-                        # Convert and display
-                        screen_rgb = cv2.cvtColor(screen_img, cv2.COLOR_BGR2RGB)
-                        screen_pil = Image.fromarray(screen_rgb)
-                        screen_tk = ImageTk.PhotoImage(image=screen_pil)
-                        
-                        # Get presenter name
-                        with self.users_lock:
-                            presenter_name = self.users.get(self.current_presenter_id, "Unknown")
-                        
-                        # Update label - keep reference to prevent garbage collection
-                        self.screen_label.config(image=screen_tk, text="")
-                        self.screen_label.image = screen_tk
-                        self.screen_name_label.config(text=f"📺 {presenter_name}'s Screen")
-                except Exception as e:
-                    print(f"[{self.get_timestamp()}] Error displaying screen: {e}")
-            else:
-                # Show "No screen sharing" message
-                self.screen_label.config(image="", text="No screen being shared")
-                self.screen_label.image = None
-                self.screen_name_label.config(text="")
+            # Update based on current layout mode
+            if self.current_layout_mode == "tiled":
+                self._update_tiled_layout()
+            elif self.current_layout_mode == "spotlight":
+                self._update_spotlight_layout_content()
             
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error updating GUI: {e}")
         
-        # Schedule next update
-        if self.root:
-            self.root.after(33, self.update_gui)  # ~30 FPS
+        # Schedule next update using QTimer
+        QTimer.singleShot(33, self.update_gui)  # ~30 FPS
+    
+    def _update_tiled_layout(self):
+        """Update tiled grid layout with all videos + screen share"""
+        # Build display streams
+        display_streams = {}
+        
+        # Other clients' video
+        with self.streams_lock:
+            for client_id, frame in self.video_streams.items():
+                display_streams[client_id] = ('video', frame, client_id)
+        
+        # Self video (from camera) - only if capturing
+        if self.capturing and self.camera is not None:
+            ret, frame = self.camera.read()
+            if ret:
+                display_streams[self.client_id] = ('video', frame, self.client_id)
+        
+        # Screen share as a tile (if active)
+        with self.screen_lock:
+            screen_frame_copy = self.shared_screen_frame
+        
+        if screen_frame_copy is not None and self.current_presenter_id is not None:
+            display_streams['screen'] = ('screen', screen_frame_copy, self.current_presenter_id)
+        
+        # Calculate video size
+        container_width = self.video_frame.width()
+        container_height = self.video_frame.height()
+        
+        num_tiles = len(display_streams)
+        rows, cols = self.calculate_grid_size(num_tiles)
+        
+        if container_width > 1 and container_height > 1:
+            cell_width = (container_width // cols) - 20
+            cell_height = (container_height // rows) - 50
+            
+            aspect_ratio = 4.0 / 3.0
+            video_width = max(160, cell_width)
+            video_height = int(video_width / aspect_ratio)
+            
+            if video_height > cell_height:
+                video_height = max(120, cell_height)
+                video_width = int(video_height * aspect_ratio)
+        else:
+            video_width = 320
+            video_height = 240
+        
+        # Update grid tiles
+        display_index = 0
+        for idx, label_info in self.video_labels.items():
+            if display_index < len(display_streams):
+                tile_key = list(display_streams.keys())[display_index]
+                tile_type, frame_data, source_client_id = display_streams[tile_key]
+                
+                # Get username/label
+                if tile_type == 'screen':
+                    with self.users_lock:
+                        presenter_name = self.users.get(source_client_id, "Unknown")
+                    username = f"📺 {presenter_name}'s Screen"
+                else:
+                    with self.users_lock:
+                        username = self.users.get(source_client_id, f"User {source_client_id}")
+                    if source_client_id == self.client_id:
+                        username = f"{username} (You)"
+                
+                label_info['username'].setText(username)
+                
+                # Process and display frame
+                try:
+                    if tile_type == 'screen':
+                        # Screen frame is compressed
+                        nparr = np.frombuffer(frame_data, np.uint8)
+                        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    else:
+                        frame = frame_data
+                    
+                    if frame is not None:
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frame_resized = cv2.resize(frame_rgb, (video_width, video_height))
+                        
+                        height, width, channel = frame_resized.shape
+                        bytes_per_line = 3 * width
+                        q_image = QImage(frame_resized.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+                        pixmap = QPixmap.fromImage(q_image)
+                        
+                        label_info['video'].setPixmap(pixmap)
+                        label_info['video'].setText("")
+                        label_info['video'].setFixedSize(video_width, video_height)
+                except Exception as e:
+                    print(f"[{self.get_timestamp()}] Error displaying tile: {e}")
+                
+                label_info['client_id'] = source_client_id
+                label_info['is_screen'] = (tile_type == 'screen')
+                label_info['container'].show()
+                display_index += 1
+            else:
+                # Hide unused slots
+                label_info['container'].hide()
+                label_info['client_id'] = None
+                label_info['is_screen'] = False
+    
+    def _update_spotlight_layout_content(self):
+        """Update spotlight layout content - main spotlight + sidebar thumbnails"""
+        # Update main spotlight
+        spotlight_frame = None
+        spotlight_name = ""
+        
+        with self.screen_lock:
+            screen_frame_copy = self.shared_screen_frame
+        
+        if screen_frame_copy is not None and self.current_presenter_id is not None:
+            # Screen sharing is active - show in spotlight
+            try:
+                nparr = np.frombuffer(screen_frame_copy, np.uint8)
+                spotlight_frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                with self.users_lock:
+                    presenter_name = self.users.get(self.current_presenter_id, "Unknown")
+                spotlight_name = f"📺 {presenter_name}'s Screen"
+            except Exception as e:
+                print(f"[{self.get_timestamp()}] Error decoding screen: {e}")
+        else:
+            # No screen share - show first participant or self
+            with self.streams_lock:
+                if len(self.video_streams) > 0:
+                    first_client_id = list(self.video_streams.keys())[0]
+                    spotlight_frame = self.video_streams[first_client_id]
+                    
+                    with self.users_lock:
+                        spotlight_name = self.users.get(first_client_id, f"User {first_client_id}")
+                elif self.capturing and self.camera is not None:
+                    ret, spotlight_frame = self.camera.read()
+                    if ret:
+                        spotlight_name = f"{self.username} (You)"
+        
+        # Display spotlight content
+        if spotlight_frame is not None:
+            try:
+                # Resize to fit spotlight area
+                spotlight_width = self.spotlight_main.width() - 40
+                if spotlight_width < 100:
+                    spotlight_width = 600
+                
+                aspect = spotlight_frame.shape[1] / spotlight_frame.shape[0]
+                spotlight_height = int(spotlight_width / aspect)
+                
+                frame_rgb = cv2.cvtColor(spotlight_frame, cv2.COLOR_BGR2RGB)
+                frame_resized = cv2.resize(frame_rgb, (spotlight_width, spotlight_height))
+                
+                height, width, channel = frame_resized.shape
+                bytes_per_line = 3 * width
+                q_image = QImage(frame_resized.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+                pixmap = QPixmap.fromImage(q_image)
+                
+                self.spotlight_label.setPixmap(pixmap)
+                self.spotlight_label.setText("")
+                self.spotlight_name_label.setText(spotlight_name)
+            except Exception as e:
+                print(f"[{self.get_timestamp()}] Error displaying spotlight: {e}")
+        else:
+            self.spotlight_label.clear()
+            self.spotlight_label.setText("No Content")
+            self.spotlight_name_label.setText("")
+        
+        # Update sidebar thumbnails
+        for i in range(self.sidebar_widget_layout.count()):
+            item = self.sidebar_widget_layout.itemAt(i)
+            if item and item.widget():
+                thumbnail = item.widget()
+                if hasattr(thumbnail, 'client_id') and hasattr(thumbnail, 'video_label'):
+                    client_id = thumbnail.client_id
+                    participant_type = thumbnail.participant_type
+                    
+                    # Get frame for this participant
+                    frame = None
+                    if participant_type == 'self' and self.capturing and self.camera is not None:
+                        ret, frame = self.camera.read()
+                        if not ret:
+                            frame = None
+                    elif participant_type == 'other':
+                        with self.streams_lock:
+                            frame = self.video_streams.get(client_id)
+                    
+                    # Update thumbnail
+                    if frame is not None:
+                        try:
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            frame_resized = cv2.resize(frame_rgb, (100, 75))
+                            
+                            height, width, channel = frame_resized.shape
+                            bytes_per_line = 3 * width
+                            q_image = QImage(frame_resized.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+                            pixmap = QPixmap.fromImage(q_image)
+                            
+                            thumbnail.video_label.setPixmap(pixmap)
+                            thumbnail.video_label.setText("")
+                        except Exception as e:
+                            print(f"[{self.get_timestamp()}] Error updating thumbnail: {e}")
+    
+    def closeEvent(self, event):
+        """Handle window close event (QMainWindow override)"""
+        self.on_closing()
+        event.accept()
     
     def on_closing(self):
         """Handle window closing"""
         self.disconnect()
-        if self.root:
-            self.root.destroy()
+        # Don't call self.close() here as it creates a loop with closeEvent
     
     def disconnect(self):
         """Disconnect from server"""
@@ -1841,106 +2561,119 @@ class VideoConferenceClient:
         print(f"[{self.get_timestamp()}] Disconnected")
 
 
-class ConnectionDialog:
+class ConnectionDialog(QDialog):
     """Dialog for getting server IP and username"""
-    def __init__(self, parent):
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.result = None
         
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Connect to Server")
-        self.dialog.geometry("350x200")
-        self.dialog.resizable(False, False)
+        self.setWindowTitle("Connect to Server")
+        self.setFixedSize(350, 200)
+        self.setModal(True)
         
-        # Center the dialog
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
+        # Main layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
         
-        # Main frame
-        main_frame = ttk.Frame(self.dialog, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # Form layout for inputs
+        form_widget = QWidget()
+        form_layout = QGridLayout(form_widget)
         
         # Server IP
-        ttk.Label(main_frame, text="Server IP Address:", font=("Arial", 10)).grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.ip_entry = ttk.Entry(main_frame, width=30)
-        self.ip_entry.grid(row=0, column=1, pady=5, padx=(10, 0))
-        self.ip_entry.insert(0, "127.0.0.1")  # Default to localhost
+        form_layout.addWidget(QLabel("Server IP Address:"), 0, 0)
+        self.ip_entry = QLineEdit()
+        self.ip_entry.setText("127.0.0.1")  # Default to localhost
+        form_layout.addWidget(self.ip_entry, 0, 1)
         
         # Username
-        ttk.Label(main_frame, text="Username:", font=("Arial", 10)).grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.username_entry = ttk.Entry(main_frame, width=30)
-        self.username_entry.grid(row=1, column=1, pady=5, padx=(10, 0))
-        self.username_entry.insert(0, "User")
+        form_layout.addWidget(QLabel("Username:"), 1, 0)
+        self.username_entry = QLineEdit()
+        self.username_entry.setText("User")
+        form_layout.addWidget(self.username_entry, 1, 1)
+        
+        layout.addWidget(form_widget)
         
         # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=2, column=0, columnspan=2, pady=20)
+        button_widget = QWidget()
+        button_layout = QHBoxLayout(button_widget)
         
-        ttk.Button(button_frame, text="Connect", command=self.on_connect).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=self.on_cancel).pack(side=tk.LEFT, padx=5)
+        connect_btn = QPushButton("Connect")
+        connect_btn.clicked.connect(self.on_connect)
+        button_layout.addWidget(connect_btn)
         
-        # Bind Enter key
-        self.dialog.bind('<Return>', lambda e: self.on_connect())
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.on_cancel)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addWidget(button_widget)
         
         # Focus on IP entry
-        self.ip_entry.focus()
+        self.ip_entry.setFocus()
     
     def on_connect(self):
         """Handle connect button"""
-        server_ip = self.ip_entry.get().strip()
-        username = self.username_entry.get().strip()
+        server_ip = self.ip_entry.text().strip()
+        username = self.username_entry.text().strip()
         
         if not server_ip:
-            messagebox.showerror("Error", "Please enter server IP address")
+            QMessageBox.critical(self, "Error", "Please enter server IP address")
             return
         
         if not username:
-            messagebox.showerror("Error", "Please enter a username")
+            QMessageBox.critical(self, "Error", "Please enter a username")
             return
         
         self.result = (server_ip, username)
-        self.dialog.destroy()
+        self.accept()
     
     def on_cancel(self):
         """Handle cancel button"""
         self.result = None
-        self.dialog.destroy()
+        self.reject()
     
-    def show(self):
-        """Show dialog and return result"""
-        self.dialog.wait_window()
+    def get_result(self):
+        """Get the result after dialog is closed"""
         return self.result
 
 
 def main():
     """Main entry point"""
+    # Create QApplication
+    app = QApplication(sys.argv)
+    
+    # Create client
     client = VideoConferenceClient()
     
     # Create GUI
-    root = client.create_gui()
+    client.create_gui()
     
     # Show connection dialog
-    dialog = ConnectionDialog(root)
-    result = dialog.show()
-    
-    if result:
-        server_ip, username = result
+    dialog = ConnectionDialog(client)
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        result = dialog.get_result()
         
-        # Connect to server
-        if client.connect_to_server(server_ip, username):
-            # Start video capture
-            client.start_video_capture()
+        if result:
+            server_ip, username = result
             
-            # Start audio capture and playback
-            client.start_audio_capture()
-            client.start_audio_playback()
-            
-            # Run GUI
-            root.mainloop()
-        else:
-            messagebox.showerror("Connection Error", "Failed to connect to server")
-            root.destroy()
+            # Connect to server
+            if client.connect_to_server(server_ip, username):
+                # Start video capture
+                client.start_video_capture()
+                
+                # Start audio capture and playback
+                client.start_audio_capture()
+                client.start_audio_playback()
+                
+                # Show main window
+                client.show()
+                
+                # Run event loop
+                sys.exit(app.exec())
+            else:
+                QMessageBox.critical(None, "Connection Error", "Failed to connect to server")
+                sys.exit(1)
     else:
-        root.destroy()
+        sys.exit(0)
 
 
 if __name__ == "__main__":

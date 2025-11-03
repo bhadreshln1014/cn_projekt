@@ -205,7 +205,7 @@ class VideoConferenceServer:
                             conn.send("PONG".encode('utf-8'))
                         elif data.startswith("CHAT:"):
                             # Chat message from client
-                            message_text = data.split(":", 1)[1]
+                            message_text = data.split(":", 1)[1].strip()  # Strip newline
                             self.broadcast_chat_message(client_id, username, message_text)
                         elif data.startswith("PRIVATE_CHAT:"):
                             # Private chat message: PRIVATE_CHAT:recipient_ids:message
@@ -213,7 +213,7 @@ class VideoConferenceServer:
                                 parts = data.split(":", 2)  # PRIVATE_CHAT:recipient_ids:message
                                 if len(parts) >= 3:
                                     recipient_ids_str = parts[1]
-                                    message_text = parts[2]
+                                    message_text = parts[2].strip()  # Strip newline
                                     recipient_ids = [int(rid) for rid in recipient_ids_str.split(",")]
                                     self.send_private_message(client_id, username, recipient_ids, message_text)
                             except Exception as e:
@@ -396,7 +396,7 @@ class VideoConferenceServer:
                 })
             
             # Serialize user list
-            message = f"USERS:{pickle.dumps(user_list).hex()}"
+            message = f"USERS:{pickle.dumps(user_list).hex()}\n"
             
             # Send to all clients
             for client_id, client_info in self.clients.items():
@@ -486,7 +486,17 @@ class VideoConferenceServer:
         """Handle file upload or download"""
         try:
             # Receive command: UPLOAD or DOWNLOAD:file_id
-            command = conn.recv(1024).decode('utf-8').strip()
+            # Read until we get a newline to separate command from file data
+            command_bytes = b''
+            while b'\n' not in command_bytes:
+                chunk = conn.recv(1024)
+                if not chunk:
+                    return
+                command_bytes += chunk
+            
+            # Split at first newline to separate command from any file data
+            command, _, remaining = command_bytes.partition(b'\n')
+            command = command.decode('utf-8').strip()
             
             if command.startswith("UPLOAD:"):
                 # Format: UPLOAD:client_id:filename:filesize
@@ -498,9 +508,9 @@ class VideoConferenceServer:
                     
                     print(f"[{self.get_timestamp()}] Receiving file '{filename}' ({filesize} bytes) from client {client_id}")
                     
-                    # Receive file data
-                    file_data = b''
-                    remaining = filesize
+                    # Receive file data - start with any data already received
+                    file_data = remaining  # Any extra data from the command recv
+                    remaining = filesize - len(file_data)
                     
                     while remaining > 0:
                         chunk_size = min(FILE_CHUNK_SIZE, remaining)
@@ -531,7 +541,7 @@ class VideoConferenceServer:
                         conn.send(f"SUCCESS:{file_id}".encode('utf-8'))
                         
                         # Broadcast file availability to all clients
-                        self.broadcast_file_offer(file_id, filename, filesize, uploader_name)
+                        self.broadcast_file_offer(file_id, filename, filesize, uploader_name, client_id)
                         
                         print(f"[{self.get_timestamp()}] File '{filename}' stored with ID {file_id}")
                     else:
@@ -563,6 +573,32 @@ class VideoConferenceServer:
                         print(f"[{self.get_timestamp()}] Sent file '{filename}' (ID: {file_id})")
                     else:
                         conn.send("ERROR:File not found\n".encode('utf-8'))
+            
+            elif command.startswith("DELETE:"):
+                # Format: DELETE:file_id:client_id
+                parts = command.split(":", 2)
+                if len(parts) >= 3:
+                    file_id = int(parts[1])
+                    client_id = int(parts[2])
+                    
+                    with self.files_lock:
+                        if file_id in self.shared_files:
+                            file_info = self.shared_files[file_id]
+                            uploader_id = file_info['uploader_id']
+                            
+                            # Only allow uploader to delete
+                            if uploader_id == client_id:
+                                filename = file_info['filename']
+                                del self.shared_files[file_id]
+                                conn.send(f"DELETE_SUCCESS:{file_id}".encode('utf-8'))
+                                
+                                # Broadcast deletion to all clients
+                                self.broadcast_file_deletion(file_id, filename)
+                                print(f"[{self.get_timestamp()}] File '{filename}' (ID: {file_id}) deleted by client {client_id}")
+                            else:
+                                conn.send("ERROR:Not authorized to delete this file".encode('utf-8'))
+                        else:
+                            conn.send("ERROR:File not found".encode('utf-8'))
                         
         except Exception as e:
             print(f"[{self.get_timestamp()}] Error in file transfer handler: {e}")
@@ -572,9 +608,9 @@ class VideoConferenceServer:
             except:
                 pass
     
-    def broadcast_file_offer(self, file_id, filename, filesize, uploader_name):
+    def broadcast_file_offer(self, file_id, filename, filesize, uploader_name, uploader_id):
         """Broadcast file availability to all clients"""
-        message = f"FILE_OFFER:{file_id}:{filename}:{filesize}:{uploader_name}\n"
+        message = f"FILE_OFFER:{file_id}:{filename}:{filesize}:{uploader_name}:{uploader_id}\n"
         
         with self.clients_lock:
             for client_id, client_info in self.clients.items():
@@ -584,6 +620,19 @@ class VideoConferenceServer:
                     print(f"[{self.get_timestamp()}] Error broadcasting file offer to client {client_id}: {e}")
         
         print(f"[{self.get_timestamp()}] Broadcasted file offer: {filename} from {uploader_name}")
+    
+    def broadcast_file_deletion(self, file_id, filename):
+        """Broadcast file deletion to all clients"""
+        message = f"FILE_DELETED:{file_id}\n"
+        
+        with self.clients_lock:
+            for client_id, client_info in self.clients.items():
+                try:
+                    client_info['tcp_conn'].send(message.encode('utf-8'))
+                except Exception as e:
+                    print(f"[{self.get_timestamp()}] Error broadcasting file deletion to client {client_id}: {e}")
+        
+        print(f"[{self.get_timestamp()}] Broadcasted file deletion: {filename} (ID: {file_id})")
     
     def accept_screen_connections(self):
         """Accept screen sharing connections"""
