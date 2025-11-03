@@ -189,6 +189,17 @@ class VideoConferenceServer:
                             # Chat message from client
                             message_text = data.split(":", 1)[1]
                             self.broadcast_chat_message(client_id, username, message_text)
+                        elif data.startswith("PRIVATE_CHAT:"):
+                            # Private chat message: PRIVATE_CHAT:recipient_ids:message
+                            try:
+                                parts = data.split(":", 2)  # PRIVATE_CHAT:recipient_ids:message
+                                if len(parts) >= 3:
+                                    recipient_ids_str = parts[1]
+                                    message_text = parts[2]
+                                    recipient_ids = [int(rid) for rid in recipient_ids_str.split(",")]
+                                    self.send_private_message(client_id, username, recipient_ids, message_text)
+                            except Exception as e:
+                                print(f"[{self.get_timestamp()}] Error handling private chat: {e}")
                         elif data == "REQUEST_PRESENTER":
                             # Client wants to become presenter
                             with self.presenter_lock:
@@ -402,6 +413,34 @@ class VideoConferenceServer:
                     print(f"[{self.get_timestamp()}] Error sending chat to client {client_id}: {e}")
         
         print(f"[{timestamp}] Chat from {sender_username}: {message}")
+    
+    def send_private_message(self, sender_id, sender_username, recipient_ids, message):
+        """Send private message to specific recipients"""
+        timestamp = self.get_timestamp()
+        
+        # Format message for private chat
+        # PRIVATE_CHAT:sender_id:sender_username:timestamp:recipient_ids:message
+        recipient_ids_str = ",".join(map(str, recipient_ids))
+        private_msg = f"PRIVATE_CHAT:{sender_id}:{sender_username}:{timestamp}:{recipient_ids_str}:{message}\n"
+        
+        # Send to sender (so they see their own message)
+        with self.clients_lock:
+            if sender_id in self.clients:
+                try:
+                    self.clients[sender_id]['tcp_conn'].send(private_msg.encode('utf-8'))
+                except Exception as e:
+                    print(f"[{self.get_timestamp()}] Error sending private chat to sender {sender_id}: {e}")
+            
+            # Send to each recipient
+            for recipient_id in recipient_ids:
+                if recipient_id in self.clients:
+                    try:
+                        self.clients[recipient_id]['tcp_conn'].send(private_msg.encode('utf-8'))
+                    except Exception as e:
+                        print(f"[{self.get_timestamp()}] Error sending private chat to recipient {recipient_id}: {e}")
+        
+        recipient_names = [self.clients.get(rid, {}).get('username', f'User{rid}') for rid in recipient_ids]
+        print(f"[{timestamp}] Private chat from {sender_username} to {', '.join(recipient_names)}: {message}")
     
     def accept_screen_connections(self):
         """Accept screen sharing connections"""

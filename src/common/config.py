@@ -14,6 +14,7 @@ SERVER_CHAT_PORT = 5000   # Chat uses same TCP connection as control messages
 # Message Types
 MSG_CHAT = "CHAT_MESSAGE"
 MSG_CHAT_HISTORY = "CHAT_HISTORY"
+MSG_PRIVATE_CHAT = "PRIVATE_CHAT"
 
 # Video Configuration
 VIDEO_WIDTH = 640

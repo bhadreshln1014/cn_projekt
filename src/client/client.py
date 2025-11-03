@@ -57,6 +57,9 @@ class VideoConferenceClient:
         self.users = {}
         self.users_lock = threading.Lock()
         
+        # Chat
+        self.selected_recipients = []  # List of client IDs for private messages
+        
         # Screen sharing
         self.screen_socket = None  # TCP control socket
         self.screen_udp_socket = None  # UDP data socket
@@ -723,6 +726,9 @@ class VideoConferenceClient:
                                         if client_id in self.video_stream_timestamps:
                                             del self.video_stream_timestamps[client_id]
                                         print(f"[{self.get_timestamp()}] Removed video stream for disconnected user {client_id}")
+                            
+                            # Update recipient dropdown
+                            self.update_recipient_list()
                         except:
                             pass
                     
@@ -742,6 +748,35 @@ class VideoConferenceClient:
                                 ))
                         except Exception as e:
                             print(f"[{self.get_timestamp()}] Error handling chat message: {e}")
+                    
+                    elif message.startswith("PRIVATE_CHAT:"):
+                        # Received private chat message: PRIVATE_CHAT:sender_id:sender_username:timestamp:recipient_ids:message
+                        try:
+                            parts = message.split(":", 5)
+                            if len(parts) >= 6:
+                                sender_id = int(parts[1])
+                                sender_username = parts[2]
+                                timestamp = parts[3]
+                                recipient_ids_str = parts[4]
+                                chat_message = parts[5]
+                                
+                                # Get recipient names
+                                recipient_ids = [int(rid) for rid in recipient_ids_str.split(",")]
+                                recipient_names = []
+                                with self.users_lock:
+                                    for rid in recipient_ids:
+                                        if rid in self.users:
+                                            recipient_names.append(self.users[rid])
+                                        elif rid == self.client_id:
+                                            recipient_names.append("You")
+                                
+                                # Display in chat window (must be done in main thread)
+                                self.root.after(0, lambda: self.display_chat_message(
+                                    sender_username, timestamp, chat_message, 
+                                    is_private=True, recipient_names=recipient_names
+                                ))
+                        except Exception as e:
+                            print(f"[{self.get_timestamp()}] Error handling private chat message: {e}")
                     
                     elif message.startswith("PRESENTER:"):
                         # Update presenter status
@@ -969,6 +1004,34 @@ class VideoConferenceClient:
         self.chat_display.tag_config("username", foreground="#0066cc", font=("Arial", 10, "bold"))
         self.chat_display.tag_config("message", foreground="#000000", font=("Arial", 10))
         self.chat_display.tag_config("system", foreground="#666666", font=("Arial", 9, "italic"))
+        self.chat_display.tag_config("private", foreground="#cc6600", font=("Arial", 10))
+        self.chat_display.tag_config("private_label", foreground="#cc0000", font=("Arial", 8, "italic"))
+        
+        # Recipient selection area
+        recipient_frame = ttk.Frame(chat_container)
+        recipient_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=(0, 5))
+        
+        ttk.Label(recipient_frame, text="To:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.recipient_var = tk.StringVar(value="Everyone")
+        self.recipient_combo = ttk.Combobox(
+            recipient_frame,
+            textvariable=self.recipient_var,
+            state="readonly",
+            width=20,
+            font=("Arial", 9)
+        )
+        self.recipient_combo['values'] = ["Everyone"]
+        self.recipient_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        
+        # Button to select multiple recipients
+        select_multiple_btn = ttk.Button(
+            recipient_frame,
+            text="Select Multiple...",
+            command=self.show_recipient_selector,
+            width=15
+        )
+        select_multiple_btn.pack(side=tk.LEFT)
         
         # Chat input area
         chat_input_frame = ttk.Frame(chat_container)
@@ -1030,9 +1093,37 @@ class VideoConferenceClient:
             return
         
         try:
-            # Send to server
-            chat_data = f"CHAT:{message}"
-            self.tcp_socket.send(chat_data.encode('utf-8'))
+            recipient = self.recipient_var.get()
+            
+            if recipient == "Everyone":
+                # Public message
+                chat_data = f"CHAT:{message}"
+                self.tcp_socket.send(chat_data.encode('utf-8'))
+            elif recipient.startswith("Multiple ("):
+                # Multiple recipients selected
+                if self.selected_recipients:
+                    recipient_ids = ",".join(map(str, self.selected_recipients))
+                    chat_data = f"PRIVATE_CHAT:{recipient_ids}:{message}"
+                    self.tcp_socket.send(chat_data.encode('utf-8'))
+                else:
+                    messagebox.showwarning("No Recipients", "Please select recipients first.")
+                    return
+            else:
+                # Single recipient
+                # Find the user ID from username
+                recipient_id = None
+                with self.users_lock:
+                    for uid, uname in self.users.items():
+                        if uname == recipient:
+                            recipient_id = uid
+                            break
+                
+                if recipient_id is not None:
+                    chat_data = f"PRIVATE_CHAT:{recipient_id}:{message}"
+                    self.tcp_socket.send(chat_data.encode('utf-8'))
+                else:
+                    messagebox.showerror("Error", "Recipient not found.")
+                    return
             
             # Clear input field
             self.chat_input.delete(0, tk.END)
@@ -1041,13 +1132,22 @@ class VideoConferenceClient:
             print(f"[{self.get_timestamp()}] Error sending chat message: {e}")
             messagebox.showerror("Chat Error", f"Failed to send message: {e}")
     
-    def display_chat_message(self, username, timestamp, message, is_system=False):
+    def display_chat_message(self, username, timestamp, message, is_system=False, is_private=False, recipient_names=None):
         """Display a chat message in the chat window"""
         self.chat_display.config(state=tk.NORMAL)
         
         if is_system:
             # System message (e.g., user joined/left)
             self.chat_display.insert(tk.END, f"{message}\n", "system")
+        elif is_private:
+            # Private message
+            self.chat_display.insert(tk.END, f"{timestamp} ", "timestamp")
+            self.chat_display.insert(tk.END, "[Private] ", "private_label")
+            self.chat_display.insert(tk.END, f"{username}", "username")
+            if recipient_names:
+                self.chat_display.insert(tk.END, f" to {', '.join(recipient_names)}", "private_label")
+            self.chat_display.insert(tk.END, f": ", "username")
+            self.chat_display.insert(tk.END, f"{message}\n", "private")
         else:
             # Regular chat message
             self.chat_display.insert(tk.END, f"{timestamp} ", "timestamp")
@@ -1057,6 +1157,80 @@ class VideoConferenceClient:
         # Auto-scroll to bottom
         self.chat_display.see(tk.END)
         self.chat_display.config(state=tk.DISABLED)
+    
+    def show_recipient_selector(self):
+        """Show dialog to select multiple recipients"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Recipients")
+        dialog.geometry("300x400")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Title
+        ttk.Label(dialog, text="Select recipients for private message:", 
+                 font=("Arial", 10, "bold")).pack(pady=10, padx=10)
+        
+        # Checkboxes for each user
+        check_vars = {}
+        check_frame = ttk.Frame(dialog)
+        check_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        with self.users_lock:
+            for user_id, username in self.users.items():
+                if user_id != self.client_id:  # Don't include self
+                    var = tk.BooleanVar(value=(user_id in self.selected_recipients))
+                    check = ttk.Checkbutton(check_frame, text=username, variable=var)
+                    check.pack(anchor="w", pady=2)
+                    check_vars[user_id] = var
+        
+        def apply_selection():
+            self.selected_recipients = [uid for uid, var in check_vars.items() if var.get()]
+            
+            if self.selected_recipients:
+                # Update dropdown to show "Multiple (X users)"
+                count = len(self.selected_recipients)
+                self.recipient_var.set(f"Multiple ({count} user{'s' if count > 1 else ''})")
+            else:
+                self.recipient_var.set("Everyone")
+            
+            dialog.destroy()
+        
+        # Buttons
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Button(btn_frame, text="Apply", command=apply_selection).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, expand=True, fill=tk.X)
+    
+    def update_recipient_list(self):
+        """Update the recipient dropdown with current users"""
+        try:
+            current_selection = self.recipient_var.get()
+            
+            # Build list of recipients
+            recipients = ["Everyone"]
+            
+            with self.users_lock:
+                for user_id, username in self.users.items():
+                    if user_id != self.client_id:  # Don't include self
+                        recipients.append(username)
+            
+            # Update combobox
+            self.recipient_combo['values'] = recipients
+            
+            # Restore selection if still valid, otherwise reset to "Everyone"
+            if current_selection not in recipients and not current_selection.startswith("Multiple"):
+                self.recipient_var.set("Everyone")
+                self.selected_recipients = []
+        except Exception as e:
+            print(f"[{self.get_timestamp()}] Error updating recipient list: {e}")
     
     def toggle_screen_sharing(self):
         """Toggle screen sharing on/off"""
