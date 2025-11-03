@@ -726,6 +726,23 @@ class VideoConferenceClient:
                         except:
                             pass
                     
+                    elif message.startswith("CHAT:"):
+                        # Received chat message from server
+                        try:
+                            parts = message.split(":", 4)  # CHAT:client_id:username:timestamp:message
+                            if len(parts) >= 5:
+                                sender_id = int(parts[1])
+                                sender_username = parts[2]
+                                timestamp = parts[3]
+                                chat_message = parts[4]
+                                
+                                # Display in chat window (must be done in main thread)
+                                self.root.after(0, lambda: self.display_chat_message(
+                                    sender_username, timestamp, chat_message
+                                ))
+                        except Exception as e:
+                            print(f"[{self.get_timestamp()}] Error handling chat message: {e}")
+                    
                     elif message.startswith("PRESENTER:"):
                         # Update presenter status
                         presenter_data = message.split(":", 1)[1]
@@ -894,11 +911,12 @@ class VideoConferenceClient:
         self.user_count_label = ttk.Label(top_frame, text="Users: 0", font=("Arial", 10))
         self.user_count_label.pack(side=tk.RIGHT, padx=5)
         
-        # Main content area - split between video grid and screen share
+        # Main content area - split between video grid, screen share, and chat
         self.content_frame = ttk.Frame(main_frame)
         self.content_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.content_frame.columnconfigure(0, weight=3)  # Video gets more space
         self.content_frame.columnconfigure(1, weight=2)  # Screen share gets space (always allocated)
+        self.content_frame.columnconfigure(2, weight=1)  # Chat panel
         self.content_frame.rowconfigure(0, weight=1)
         
         # Video grid frame (left side)
@@ -918,6 +936,50 @@ class VideoConferenceClient:
         self.screen_label = ttk.Label(self.screen_frame, text="No screen being shared", 
                                      font=("Arial", 14), anchor="center")
         self.screen_label.pack(expand=True, fill=tk.BOTH)
+        
+        # Chat panel (right side)
+        chat_container = ttk.Frame(self.content_frame, relief=tk.SUNKEN, borderwidth=2)
+        chat_container.grid(row=0, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        
+        # Chat header
+        chat_header = ttk.Label(chat_container, text="💬 Chat", 
+                               font=("Arial", 12, "bold"), anchor="center")
+        chat_header.pack(side=tk.TOP, fill=tk.X, pady=5)
+        
+        # Chat display area with scrollbar
+        chat_display_frame = ttk.Frame(chat_container)
+        chat_display_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        chat_scrollbar = ttk.Scrollbar(chat_display_frame)
+        chat_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.chat_display = tk.Text(
+            chat_display_frame,
+            wrap=tk.WORD,
+            yscrollcommand=chat_scrollbar.set,
+            state=tk.DISABLED,
+            font=("Arial", 10),
+            bg="#f5f5f5"
+        )
+        self.chat_display.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        chat_scrollbar.config(command=self.chat_display.yview)
+        
+        # Configure chat text tags for styling
+        self.chat_display.tag_config("timestamp", foreground="#888888", font=("Arial", 8))
+        self.chat_display.tag_config("username", foreground="#0066cc", font=("Arial", 10, "bold"))
+        self.chat_display.tag_config("message", foreground="#000000", font=("Arial", 10))
+        self.chat_display.tag_config("system", foreground="#666666", font=("Arial", 9, "italic"))
+        
+        # Chat input area
+        chat_input_frame = ttk.Frame(chat_container)
+        chat_input_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
+        
+        self.chat_input = ttk.Entry(chat_input_frame, font=("Arial", 10))
+        self.chat_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.chat_input.bind('<Return>', lambda e: self.send_chat_message())
+        
+        send_btn = ttk.Button(chat_input_frame, text="Send", command=self.send_chat_message, width=8)
+        send_btn.pack(side=tk.RIGHT)
         
         # Create initial video grid (will be dynamic)
         self.create_video_grid()
@@ -956,6 +1018,45 @@ class VideoConferenceClient:
         else:
             # Turn speaker OFF
             self.stop_audio_playback()
+    
+    def send_chat_message(self):
+        """Send a chat message to the server"""
+        if not self.connected:
+            messagebox.showwarning("Not Connected", "Please connect to the server first.")
+            return
+        
+        message = self.chat_input.get().strip()
+        if not message:
+            return
+        
+        try:
+            # Send to server
+            chat_data = f"CHAT:{message}"
+            self.tcp_socket.send(chat_data.encode('utf-8'))
+            
+            # Clear input field
+            self.chat_input.delete(0, tk.END)
+            
+        except Exception as e:
+            print(f"[{self.get_timestamp()}] Error sending chat message: {e}")
+            messagebox.showerror("Chat Error", f"Failed to send message: {e}")
+    
+    def display_chat_message(self, username, timestamp, message, is_system=False):
+        """Display a chat message in the chat window"""
+        self.chat_display.config(state=tk.NORMAL)
+        
+        if is_system:
+            # System message (e.g., user joined/left)
+            self.chat_display.insert(tk.END, f"{message}\n", "system")
+        else:
+            # Regular chat message
+            self.chat_display.insert(tk.END, f"{timestamp} ", "timestamp")
+            self.chat_display.insert(tk.END, f"{username}: ", "username")
+            self.chat_display.insert(tk.END, f"{message}\n", "message")
+        
+        # Auto-scroll to bottom
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
     
     def toggle_screen_sharing(self):
         """Toggle screen sharing on/off"""

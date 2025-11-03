@@ -59,6 +59,10 @@ class VideoConferenceServer:
         self.current_screen_frame = None  # Latest screen frame from presenter
         self.screen_frame_lock = threading.Lock()
         
+        # Chat history: list of {'client_id': id, 'username': name, 'message': text, 'timestamp': time}
+        self.chat_history = []
+        self.chat_lock = threading.Lock()
+        
         self.running = False
         
     def start(self):
@@ -181,6 +185,10 @@ class VideoConferenceServer:
                         # Handle control messages (heartbeat, etc.)
                         if data == "PING":
                             conn.send("PONG".encode('utf-8'))
+                        elif data.startswith("CHAT:"):
+                            # Chat message from client
+                            message_text = data.split(":", 1)[1]
+                            self.broadcast_chat_message(client_id, username, message_text)
                         elif data == "REQUEST_PRESENTER":
                             # Client wants to become presenter
                             with self.presenter_lock:
@@ -367,6 +375,33 @@ class VideoConferenceServer:
                     client_info['tcp_conn'].send(message.encode('utf-8'))
                 except:
                     pass
+    
+    def broadcast_chat_message(self, sender_id, sender_username, message):
+        """Broadcast chat message to all connected clients"""
+        timestamp = self.get_timestamp()
+        
+        # Store in chat history
+        with self.chat_lock:
+            chat_entry = {
+                'client_id': sender_id,
+                'username': sender_username,
+                'message': message,
+                'timestamp': timestamp
+            }
+            self.chat_history.append(chat_entry)
+        
+        # Format message for broadcast
+        chat_msg = f"CHAT:{sender_id}:{sender_username}:{timestamp}:{message}\n"
+        
+        # Send to all clients
+        with self.clients_lock:
+            for client_id, client_info in self.clients.items():
+                try:
+                    client_info['tcp_conn'].send(chat_msg.encode('utf-8'))
+                except Exception as e:
+                    print(f"[{self.get_timestamp()}] Error sending chat to client {client_id}: {e}")
+        
+        print(f"[{timestamp}] Chat from {sender_username}: {message}")
     
     def accept_screen_connections(self):
         """Accept screen sharing connections"""

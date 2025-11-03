@@ -9,6 +9,11 @@ SERVER_UDP_PORT = 5001    # For video streaming
 SERVER_AUDIO_PORT = 5002  # For audio streaming
 SERVER_SCREEN_PORT = 5003 # For screen sharing control (TCP)
 SERVER_SCREEN_UDP_PORT = 5004 # For screen frame data (UDP)
+SERVER_CHAT_PORT = 5000   # Chat uses same TCP connection as control messages
+
+# Message Types
+MSG_CHAT = "CHAT_MESSAGE"
+MSG_CHAT_HISTORY = "CHAT_HISTORY"
 
 # Video Configuration
 VIDEO_WIDTH = 640
