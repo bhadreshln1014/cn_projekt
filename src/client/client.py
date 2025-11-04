@@ -114,49 +114,74 @@ class VideoConferenceClient(QMainWindow):
         """Show a notification popup for incoming chat messages"""
         # Create notification widget
         notification = QFrame(self)
+        notification.setFixedSize(320, 90)
         notification.setStyleSheet("""
             QFrame {
                 background-color: #2d2d30;
-                border: 2px solid #007acc;
-                border-radius: 8px;
-                padding: 10px;
+                border: 1px solid #3e3e42;
+                border-radius: 10px;
             }
         """)
-        notification.setFixedWidth(300)
         notification.setCursor(Qt.CursorShape.PointingHandCursor)
         
         layout = QVBoxLayout(notification)
-        layout.setSpacing(5)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        layout.setContentsMargins(15, 12, 15, 12)
         
-        # Header with sender name and type
-        header_label = QLabel(f"💬 {notification_type} from {sender}")
-        header_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        header_label.setStyleSheet("color: #007acc; background: transparent; border: none;")
-        layout.addWidget(header_label)
+        # Header with sender name
+        header = QWidget()
+        header.setStyleSheet("background: transparent;")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        
+        # Avatar placeholder (use first letter of sender name)
+        avatar = QLabel(sender[0].upper() if sender else "?")
+        avatar.setFixedSize(40, 40)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet("""
+            QLabel {
+                background-color: #007acc;
+                color: white;
+                border-radius: 20px;
+                font-size: 18px;
+                font-weight: bold;
+            }
+        """)
+        header_layout.addWidget(avatar)
+        
+        # Sender name and message container
+        text_container = QWidget()
+        text_container.setStyleSheet("background: transparent;")
+        text_layout = QVBoxLayout(text_container)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(2)
+        
+        # Sender name
+        sender_label = QLabel(sender)
+        sender_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        sender_label.setStyleSheet("color: #ffffff; background: transparent;")
+        text_layout.addWidget(sender_label)
         
         # Message preview (truncate if too long)
-        preview = message[:50] + "..." if len(message) > 50 else message
+        preview = message[:40] + "..." if len(message) > 40 else message
         message_label = QLabel(preview)
         message_label.setFont(QFont("Arial", 9))
-        message_label.setStyleSheet("color: #e8eaed; background: transparent; border: none;")
+        message_label.setStyleSheet("color: #e0e0e0; background: transparent;")
         message_label.setWordWrap(True)
-        layout.addWidget(message_label)
+        text_layout.addWidget(message_label)
         
-        # Click to open chat hint
-        hint_label = QLabel("Click to view →")
-        hint_label.setFont(QFont("Arial", 8))
-        hint_label.setStyleSheet("color: #a0a0a0; background: transparent; border: none;")
-        hint_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        layout.addWidget(hint_label)
+        header_layout.addWidget(text_container, 1)
+        layout.addWidget(header)
         
         # Make notification clickable
         notification.mousePressEvent = lambda event: self.notification_clicked(notification)
         
         # Position notification (stack them if multiple)
-        y_offset = 80 + (len(self.active_notifications) * 110)
-        notification.move(self.width() - 320, y_offset)
+        y_offset = 80 + (len(self.active_notifications) * 100)
+        notification.move(self.width() - 340, y_offset)
         notification.show()
+        notification.raise_()  # Bring to front
         
         # Add to active notifications
         self.active_notifications.append(notification)
@@ -178,8 +203,8 @@ class VideoConferenceClient(QMainWindow):
             
             # Reposition remaining notifications
             for idx, notif in enumerate(self.active_notifications):
-                y_offset = 80 + (idx * 110)
-                notif.move(self.width() - 320, y_offset)
+                y_offset = 80 + (idx * 100)
+                notif.move(self.width() - 340, y_offset)
         
     def connect_to_server(self, server_ip, username):
         """Connect to the server"""
