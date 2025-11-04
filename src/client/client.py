@@ -44,6 +44,7 @@ class VideoConferenceClient(QMainWindow):
     # Signals for thread-safe GUI updates
     chat_message_received = pyqtSignal(str, str, str)  # username, timestamp, message
     chat_debug_signal = pyqtSignal(str)  # debug message to display
+    notification_signal = pyqtSignal(str, str)  # sender, message - for thread-safe notifications
     
     def __init__(self):
         super().__init__()
@@ -2268,6 +2269,7 @@ class VideoConferenceClient(QMainWindow):
         # Connect signals for thread-safe GUI updates
         self.chat_message_received.connect(self.display_chat_message)
         self.chat_debug_signal.connect(lambda msg: self.chat_display.append(msg))
+        self.notification_signal.connect(self.show_chat_notification)
         
         # Start GUI update loop
         self.update_gui()
@@ -2453,7 +2455,7 @@ class VideoConferenceClient(QMainWindow):
         # Show notification if chat panel is not visible and message is not from self
         if not self.chat_panel_visible and username != self.username:
             notification_type = "Private" if is_private else "Message"
-            self.show_chat_notification(username, message, notification_type)
+            self.notification_signal.emit(username, message)
     
     def show_recipient_selector(self):
         """Show dialog to select multiple recipients"""
