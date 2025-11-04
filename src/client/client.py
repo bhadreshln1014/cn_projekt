@@ -824,10 +824,8 @@ class VideoConferenceClient(QMainWindow):
                                 
                                 print(f"[{self.get_timestamp()}] DEBUG: About to display private message - recipient_names={recipient_names}")
                                 
-                                # Display in chat window (must be done in main thread)
-                                # Fix: Capture variables properly in lambda
-                                QTimer.singleShot(0, lambda u=sender_username, t=timestamp, m=chat_message, r=recipient_names:
-                                    self.display_chat_message(u, t, m, is_private=True, recipient_names=r))
+                                # Display in chat window - call directly since we're already in a QTimer callback
+                                self.display_chat_message(sender_username, timestamp, chat_message, is_private=True, recipient_names=recipient_names)
                         except Exception as e:
                             print(f"[{self.get_timestamp()}] Error handling private chat message: {e}")
                     
