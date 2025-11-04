@@ -168,16 +168,18 @@ class VideoConferenceClient(QMainWindow):
         main_layout.addWidget(text_container, 1)
         
         # Close button
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(24, 24)
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
         close_btn.setStyleSheet("""
             QPushButton {
-                background-color: transparent;
+                background-color: #3e3e42;
                 color: #ffffff;
                 border: none;
-                font-size: 22px;
+                font-size: 18px;
                 font-weight: bold;
-                border-radius: 12px;
+                border-radius: 14px;
+                padding: 0px;
+                margin: 0px;
             }
             QPushButton:hover {
                 background-color: #ea4335;
