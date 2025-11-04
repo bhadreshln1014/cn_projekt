@@ -218,11 +218,6 @@ class VideoConferenceClient(QMainWindow):
     
     def show_user_join_notification(self, username):
         """Show a notification when a user joins"""
-        # Add system message to chat
-        self.display_chat_message(
-            "System", self.get_timestamp(), f"{username} joined the meeting", is_system=True
-        )
-        
         # Create notification widget
         notification = QFrame(self)
         notification.setFixedSize(340, 90)
@@ -316,11 +311,6 @@ class VideoConferenceClient(QMainWindow):
     
     def show_user_left_notification(self, username):
         """Show a notification when a user leaves"""
-        # Add system message to chat
-        self.display_chat_message(
-            "System", self.get_timestamp(), f"{username} left the meeting", is_system=True
-        )
-        
         # Create notification widget
         notification = QFrame(self)
         notification.setFixedSize(340, 90)
