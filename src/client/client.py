@@ -80,6 +80,7 @@ class VideoConferenceClient(QMainWindow):
         # User list
         self.users = {}
         self.users_lock = threading.Lock()
+        self.initial_user_list_received = False  # Track if we've received the first user list
         
         # Chat
         self.selected_recipients = []  # List of client IDs for private messages
@@ -949,11 +950,15 @@ class VideoConferenceClient(QMainWindow):
                                 new_user_count = len(self.users)
                                 new_users = set(self.users.values())  # Get new usernames
                                 
-                                # Detect who joined
-                                joined_users = new_users - old_users
-                                for username in joined_users:
-                                    if username != self.username:  # Don't notify for yourself
-                                        self.user_join_signal.emit(username)
+                                # Detect who joined (only after initial user list is received)
+                                if self.initial_user_list_received:
+                                    joined_users = new_users - old_users
+                                    for username in joined_users:
+                                        if username != self.username:  # Don't notify for yourself
+                                            self.user_join_signal.emit(username)
+                                else:
+                                    # Mark that we've received the initial user list
+                                    self.initial_user_list_received = True
                             
                             # Clean up video streams for disconnected users
                             with self.streams_lock:
