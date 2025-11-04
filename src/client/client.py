@@ -2773,14 +2773,9 @@ class VideoConferenceClient(QMainWindow):
                     QMessageBox.warning(self, "No Recipients", "Please select recipients first.")
                     return
             else:
-                # Single recipient
-                # Find the user ID from username
-                recipient_id = None
-                with self.users_lock:
-                    for uid, uname in self.users.items():
-                        if uname == recipient:
-                            recipient_id = uid
-                            break
+                # Single recipient - get client_id from combobox user data
+                current_index = self.recipient_combo.currentIndex()
+                recipient_id = self.recipient_combo.itemData(current_index)
                 
                 if recipient_id is not None:
                     chat_data = f"PRIVATE_CHAT:{recipient_id}:{message}\n"
@@ -2899,17 +2894,19 @@ class VideoConferenceClient(QMainWindow):
             current_selection = self.recipient_combo.currentText()
             is_multiple_selection = current_selection.startswith("Multiple (")
             
-            # Build list of recipients
-            recipients = ["Everyone"]
+            # Update combobox
+            self.recipient_combo.clear()
             
+            # Add "Everyone" option (no user data)
+            self.recipient_combo.addItem("Everyone")
+            
+            # Add individual users with their client_id as user data
             with self.users_lock:
                 for user_id, username in self.users.items():
                     if user_id != self.client_id:  # Don't include self
-                        recipients.append(username)
-            
-            # Update combobox
-            self.recipient_combo.clear()
-            self.recipient_combo.addItems(recipients)
+                        # Display format: "username (ID: X)" for duplicate detection
+                        display_name = f"{username} (ID: {user_id})" if list(self.users.values()).count(username) > 1 else username
+                        self.recipient_combo.addItem(display_name, user_id)
             
             # If there was a multiple selection, re-add it and restore
             if is_multiple_selection and self.selected_recipients:
@@ -2930,12 +2927,14 @@ class VideoConferenceClient(QMainWindow):
                     # All selected recipients left, reset
                     self.selected_recipients = []
                     self.recipient_combo.setCurrentText("Everyone")
-            elif current_selection in recipients:
-                # Restore previous single selection
-                self.recipient_combo.setCurrentText(current_selection)
             else:
-                # Reset to "Everyone"
-                self.recipient_combo.setCurrentText("Everyone")
+                # Try to restore previous selection by searching for matching text
+                index = self.recipient_combo.findText(current_selection)
+                if index >= 0:
+                    self.recipient_combo.setCurrentIndex(index)
+                else:
+                    # Selection not found, reset to "Everyone"
+                    self.recipient_combo.setCurrentText("Everyone")
             
             # Update participants list in people panel
             self.update_participants_list()
