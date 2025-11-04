@@ -45,6 +45,7 @@ class VideoConferenceClient(QMainWindow):
     chat_message_received = pyqtSignal(str, str, str)  # username, timestamp, message
     chat_debug_signal = pyqtSignal(str)  # debug message to display
     notification_signal = pyqtSignal(str, str)  # sender, message - for thread-safe notifications
+    user_join_signal = pyqtSignal(str)  # username - for user join notifications
     
     def __init__(self):
         super().__init__()
@@ -203,6 +204,94 @@ class VideoConferenceClient(QMainWindow):
         
         # Auto-hide after 5 seconds
         QTimer.singleShot(5000, lambda: self.hide_notification(notification))
+    
+    def show_user_join_notification(self, username):
+        """Show a notification when a user joins"""
+        # Create notification widget
+        notification = QFrame(self)
+        notification.setFixedSize(340, 90)
+        notification.setStyleSheet("""
+            QFrame {
+                background-color: #2d2d30;
+                border: 1px solid #3e3e42;
+                border-radius: 10px;
+            }
+        """)
+        
+        main_layout = QHBoxLayout(notification)
+        main_layout.setContentsMargins(15, 12, 15, 12)
+        main_layout.setSpacing(12)
+        
+        # Avatar (circular with first letter of username)
+        avatar = QLabel(username[0].upper() if username else "?")
+        avatar.setFixedSize(40, 40)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet("""
+            QLabel {
+                background-color: #34a853;
+                color: white;
+                border-radius: 20px;
+                font-size: 18px;
+                font-weight: bold;
+                border: none;
+            }
+        """)
+        main_layout.addWidget(avatar)
+        
+        # Text container (username + "joined")
+        text_container = QWidget()
+        text_container.setStyleSheet("background: transparent; border: none;")
+        text_layout = QVBoxLayout(text_container)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(4)
+        
+        # Username
+        user_label = QLabel(username)
+        user_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        user_label.setStyleSheet("color: #ffffff; background: transparent; border: none;")
+        text_layout.addWidget(user_label)
+        
+        # "joined the meeting"
+        joined_label = QLabel("joined the meeting")
+        joined_label.setFont(QFont("Arial", 9))
+        joined_label.setStyleSheet("color: #e0e0e0; background: transparent; border: none;")
+        text_layout.addWidget(joined_label)
+        
+        main_layout.addWidget(text_container, 1)
+        
+        # Close button
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3e3e42;
+                color: #ffffff;
+                border: none;
+                font-size: 18px;
+                font-weight: bold;
+                border-radius: 14px;
+                padding: 0px;
+                margin: 0px;
+            }
+            QPushButton:hover {
+                background-color: #ea4335;
+                color: #ffffff;
+            }
+        """)
+        close_btn.clicked.connect(lambda: self.hide_notification(notification))
+        main_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        
+        # Position notification (stack them if multiple)
+        y_offset = 80 + (len(self.active_notifications) * 100)
+        notification.move(self.width() - 360, y_offset)
+        notification.show()
+        notification.raise_()  # Bring to front
+        
+        # Add to active notifications
+        self.active_notifications.append(notification)
+        
+        # Auto-hide after 4 seconds
+        QTimer.singleShot(4000, lambda: self.hide_notification(notification))
     
     def notification_clicked(self, notification):
         """Handle notification click - open chat panel"""
@@ -855,8 +944,16 @@ class VideoConferenceClient(QMainWindow):
                             users = pickle.loads(bytes.fromhex(user_data))
                             with self.users_lock:
                                 old_user_count = len(self.users)
+                                old_users = set(self.users.values())  # Store old usernames
                                 self.users = {u['id']: u['username'] for u in users}
                                 new_user_count = len(self.users)
+                                new_users = set(self.users.values())  # Get new usernames
+                                
+                                # Detect who joined
+                                joined_users = new_users - old_users
+                                for username in joined_users:
+                                    if username != self.username:  # Don't notify for yourself
+                                        self.user_join_signal.emit(username)
                             
                             # Clean up video streams for disconnected users
                             with self.streams_lock:
@@ -2309,6 +2406,7 @@ class VideoConferenceClient(QMainWindow):
         self.chat_message_received.connect(self.display_chat_message)
         self.chat_debug_signal.connect(lambda msg: self.chat_display.append(msg))
         self.notification_signal.connect(self.show_chat_notification)
+        self.user_join_signal.connect(self.show_user_join_notification)
         
         # Start GUI update loop
         self.update_gui()
@@ -3093,13 +3191,13 @@ class VideoConferenceClient(QMainWindow):
         """Switch to tiled layout view"""
         self.layout_mode = "tiled"
         self.current_layout_mode = "tiled"
-        self.apply_tiled_layout()
+        self.apply_layout()
     
     def switch_to_spotlight_layout(self):
         """Switch to spotlight layout view"""
         self.layout_mode = "spotlight"
         self.current_layout_mode = "spotlight"
-        self.apply_spotlight_layout()
+        self.apply_layout()
     
     def change_layout(self, event=None):
         """Change video layout mode (Google Meet style)"""
