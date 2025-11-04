@@ -173,14 +173,15 @@ class VideoConferenceClient(QMainWindow):
         close_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
-                color: #e0e0e0;
+                color: #ffffff;
                 border: none;
-                font-size: 20px;
+                font-size: 22px;
                 font-weight: bold;
                 border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #3e3e42;
+                background-color: #ea4335;
+                color: #ffffff;
             }
         """)
         close_btn.clicked.connect(lambda: self.hide_notification(notification))
