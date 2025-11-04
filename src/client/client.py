@@ -48,6 +48,7 @@ class VideoConferenceClient(QMainWindow):
     chat_debug_signal = pyqtSignal(str)  # debug message to display
     notification_signal = pyqtSignal(str, str)  # sender, message - for thread-safe notifications
     user_join_signal = pyqtSignal(str)  # username - for user join notifications
+    user_left_signal = pyqtSignal(str)  # username - for user left notifications
     
     def __init__(self):
         super().__init__()
@@ -201,8 +202,13 @@ class VideoConferenceClient(QMainWindow):
         # Position notification (stack them if multiple)
         y_offset = 80 + (len(self.active_notifications) * 100)
         notification.move(self.width() - 360, y_offset)
+        
+        # Ensure notification is properly displayed on Windows
+        notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        notification.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         notification.show()
         notification.raise_()  # Bring to front
+        notification.activateWindow()  # Ensure it's active on Windows
         
         # Add to active notifications
         self.active_notifications.append(notification)
@@ -212,6 +218,11 @@ class VideoConferenceClient(QMainWindow):
     
     def show_user_join_notification(self, username):
         """Show a notification when a user joins"""
+        # Add system message to chat
+        self.display_chat_message(
+            "System", self.get_timestamp(), f"{username} joined the meeting", is_system=True
+        )
+        
         # Create notification widget
         notification = QFrame(self)
         notification.setFixedSize(340, 90)
@@ -289,8 +300,111 @@ class VideoConferenceClient(QMainWindow):
         # Position notification (stack them if multiple)
         y_offset = 80 + (len(self.active_notifications) * 100)
         notification.move(self.width() - 360, y_offset)
+        
+        # Ensure notification is properly displayed on Windows
+        notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        notification.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         notification.show()
         notification.raise_()  # Bring to front
+        notification.activateWindow()  # Ensure it's active on Windows
+        
+        # Add to active notifications
+        self.active_notifications.append(notification)
+        
+        # Auto-hide after 4 seconds
+        QTimer.singleShot(4000, lambda: self.hide_notification(notification))
+    
+    def show_user_left_notification(self, username):
+        """Show a notification when a user leaves"""
+        # Add system message to chat
+        self.display_chat_message(
+            "System", self.get_timestamp(), f"{username} left the meeting", is_system=True
+        )
+        
+        # Create notification widget
+        notification = QFrame(self)
+        notification.setFixedSize(340, 90)
+        notification.setStyleSheet("""
+            QFrame {
+                background-color: #2d2d30;
+                border: 1px solid #3e3e42;
+                border-radius: 10px;
+            }
+        """)
+        
+        main_layout = QHBoxLayout(notification)
+        main_layout.setContentsMargins(15, 12, 15, 12)
+        main_layout.setSpacing(12)
+        
+        # Avatar (circular with first letter of username) - red for leaving
+        avatar = QLabel(username[0].upper() if username else "?")
+        avatar.setFixedSize(40, 40)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet("""
+            QLabel {
+                background-color: #ea4335;
+                color: white;
+                border-radius: 20px;
+                font-size: 18px;
+                font-weight: bold;
+                border: none;
+            }
+        """)
+        main_layout.addWidget(avatar)
+        
+        # Text container (username + "left")
+        text_container = QWidget()
+        text_container.setStyleSheet("background: transparent; border: none;")
+        text_layout = QVBoxLayout(text_container)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(4)
+        
+        # Username
+        user_label = QLabel(username)
+        user_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        user_label.setStyleSheet("color: #ffffff; background: transparent; border: none;")
+        text_layout.addWidget(user_label)
+        
+        # "left the meeting"
+        left_label = QLabel("left the meeting")
+        left_label.setFont(QFont("Arial", 9))
+        left_label.setStyleSheet("color: #e0e0e0; background: transparent; border: none;")
+        text_layout.addWidget(left_label)
+        
+        main_layout.addWidget(text_container, 1)
+        
+        # Close button
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3e3e42;
+                color: #ffffff;
+                border: none;
+                font-size: 18px;
+                font-weight: bold;
+                border-radius: 14px;
+                padding: 0px;
+                margin: 0px;
+            }
+            QPushButton:hover {
+                background-color: #ea4335;
+                color: #ffffff;
+            }
+        """)
+        close_btn.clicked.connect(lambda: self.hide_notification(notification))
+        main_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        
+        # Position notification (stack them if multiple)
+        y_offset = 80 + (len(self.active_notifications) * 100)
+        notification.move(self.width() - 360, y_offset)
+        
+        # Ensure notification is properly displayed on Windows
+        notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        notification.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        notification.show()
+        notification.raise_()  # Bring to front
+        notification.activateWindow()  # Ensure it's active on Windows
         
         # Add to active notifications
         self.active_notifications.append(notification)
@@ -1056,6 +1170,12 @@ class VideoConferenceClient(QMainWindow):
                                     for username in joined_users:
                                         if username != self.username:  # Don't notify for yourself
                                             self.user_join_signal.emit(username)
+                                    
+                                    # Detect who left
+                                    left_users = old_users - new_users
+                                    for username in left_users:
+                                        if username != self.username:  # Don't notify for yourself
+                                            self.user_left_signal.emit(username)
                                 else:
                                     # Mark that we've received the initial user list
                                     self.initial_user_list_received = True
@@ -2513,6 +2633,7 @@ class VideoConferenceClient(QMainWindow):
         self.chat_debug_signal.connect(lambda msg: self.chat_display.append(msg))
         self.notification_signal.connect(self.show_chat_notification)
         self.user_join_signal.connect(self.show_user_join_notification)
+        self.user_left_signal.connect(self.show_user_left_notification)
         
         # Start GUI update loop
         self.update_gui()

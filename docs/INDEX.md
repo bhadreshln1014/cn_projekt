@@ -206,7 +206,7 @@ projekt/
 ## 🎓 Academic Context
 
 **Course**: Computer Networks (SEM 5)  
-**Institution**: IIIT Dharwad  
+**Institution**: IIITDM Kancheepuram  
 **Project**: LAN Video Conferencing Application  
 **Objective**: Implement a complete video conferencing system demonstrating:
 - Client-server architecture
@@ -233,6 +233,6 @@ When updating documentation:
 
 ---
 
-**Documentation Maintained By**: Project Team  
-**Last Updated**: 2024  
+**Documentation Maintained By**: Bhadresh L and Santhana Srinivasan R
+**Last Updated**: Nov, 2025  
 **Total Documentation**: 15 files covering all aspects of the project
