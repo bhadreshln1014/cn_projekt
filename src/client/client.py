@@ -797,10 +797,12 @@ class VideoConferenceClient(QMainWindow):
                         # Received private chat message: PRIVATE_CHAT:sender_id|sender_username|timestamp|recipient_ids|message
                         try:
                             print(f"[{self.get_timestamp()}] DEBUG: Received PRIVATE_CHAT message: {message[:100]}")
+                            print(f"[{self.get_timestamp()}] DEBUG: Full message: {repr(message)}")
                             # Remove "PRIVATE_CHAT:" prefix and split by pipe
                             content = message[13:]  # Remove "PRIVATE_CHAT:"
+                            print(f"[{self.get_timestamp()}] DEBUG: Content after removing prefix: {repr(content[:100])}")
                             parts = content.split("|", 4)  # Split into max 5 parts
-                            print(f"[{self.get_timestamp()}] DEBUG: Split into {len(parts)} parts")
+                            print(f"[{self.get_timestamp()}] DEBUG: Split into {len(parts)} parts: {parts}")
                             if len(parts) >= 5:
                                 sender_id = int(parts[0])
                                 sender_username = parts[1]
