@@ -49,6 +49,8 @@ class VideoConferenceClient(QMainWindow):
     notification_signal = pyqtSignal(str, str)  # sender, message - for thread-safe notifications
     user_join_signal = pyqtSignal(str)  # username - for user join notifications
     user_left_signal = pyqtSignal(str)  # username - for user left notifications
+    screen_share_denied_signal = pyqtSignal(str)  # presenter_name - for screen share denial warning
+    screen_share_error_signal = pyqtSignal(str)  # error_message - for screen share error
     
     def __init__(self):
         super().__init__()
@@ -2665,6 +2667,8 @@ class VideoConferenceClient(QMainWindow):
         self.notification_signal.connect(self.show_chat_notification)
         self.user_join_signal.connect(self.show_user_join_notification)
         self.user_left_signal.connect(self.show_user_left_notification)
+        self.screen_share_denied_signal.connect(self.show_screen_share_warning)
+        self.screen_share_error_signal.connect(self.show_screen_share_error)
         
         # Start GUI update loop
         self.update_gui()
@@ -3390,8 +3394,7 @@ class VideoConferenceClient(QMainWindow):
                     print(f"[DEBUG] start_screen_sharing returned: {success}")
                     
                     if not success:
-                        print(f"[DEBUG] Screen sharing denied - showing warning dialog")
-                        # Another user is presenting - revert button and show message
+                        print(f"[DEBUG] Screen sharing denied - emitting signal")
                         
                         # Get presenter name if available
                         presenter_name = "Another user"
@@ -3401,28 +3404,16 @@ class VideoConferenceClient(QMainWindow):
                         
                         print(f"[DEBUG] Presenter name: {presenter_name}")
                         
-                        # Must update UI in main thread
-                        from PyQt6.QtCore import QMetaObject, Q_ARG
-                        QMetaObject.invokeMethod(
-                            self,
-                            "show_screen_share_warning",
-                            Qt.ConnectionType.QueuedConnection,
-                            Q_ARG(str, presenter_name)
-                        )
+                        # Emit signal to show warning in main thread
+                        self.screen_share_denied_signal.emit(presenter_name)
                         
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error in start_in_background: {e}")
                     import traceback
                     traceback.print_exc()
                     
-                    # Show error dialog
-                    from PyQt6.QtCore import QMetaObject, Q_ARG
-                    QMetaObject.invokeMethod(
-                        self,
-                        "show_screen_share_error",
-                        Qt.ConnectionType.QueuedConnection,
-                        Q_ARG(str, str(e))
-                    )
+                    # Emit signal to show error in main thread
+                    self.screen_share_error_signal.emit(str(e))
             
             threading.Thread(target=start_in_background, daemon=True).start()
             self.is_presenting = True  # Optimistically set
