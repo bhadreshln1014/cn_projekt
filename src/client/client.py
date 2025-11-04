@@ -22,10 +22,10 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QTextEdit, QLineEdit, QComboBox, QCheckBox,
     QGridLayout, QFrame, QDialog, QListWidget, QProgressBar, QMessageBox,
-    QFileDialog, QScrollArea, QGroupBox, QListWidgetItem, QSizePolicy
+    QFileDialog, QScrollArea, QGroupBox, QListWidgetItem, QSizePolicy, QMenu
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread, QSize
-from PyQt6.QtGui import QPixmap, QImage, QFont, QColor, QPalette, QIcon
+from PyQt6.QtGui import QPixmap, QImage, QFont, QColor, QPalette, QIcon, QAction
 
 # Try to import qtawesome for Material Design icons
 try:
@@ -1649,19 +1649,17 @@ class VideoConferenceClient(QMainWindow):
         file_btn.clicked.connect(self.toggle_file_panel)
         right_controls_layout.addWidget(file_btn)
         
-        # Layout toggle buttons (Tiled/Spotlight)
-        # Tiled layout button
-        self.tiled_btn = QPushButton()
-        tiled_icon = self.get_icon('grid_view', '#e8eaed')
-        if tiled_icon:
-            self.tiled_btn.setIcon(tiled_icon)
-            self.tiled_btn.setIconSize(QSize(20, 20))
+        # Layout menu button
+        layout_btn = QPushButton()
+        layout_icon = self.get_icon('view_module', '#e8eaed')
+        if layout_icon:
+            layout_btn.setIcon(layout_icon)
+            layout_btn.setIconSize(QSize(20, 20))
         else:
-            self.tiled_btn.setText("⊞")
-            self.tiled_btn.setFont(QFont("Arial", 16))
-        self.tiled_btn.setFixedSize(40, 40)
-        self.tiled_btn.setCheckable(True)
-        self.tiled_btn.setStyleSheet("""
+            layout_btn.setText("⊞")
+            layout_btn.setFont(QFont("Arial", 16))
+        layout_btn.setFixedSize(40, 40)
+        layout_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3c4043;
                 border-radius: 20px;
@@ -1671,44 +1669,10 @@ class VideoConferenceClient(QMainWindow):
             QPushButton:hover {
                 background-color: #5f6368;
             }
-            QPushButton:checked {
-                background-color: #007acc;
-                color: #ffffff;
-            }
         """)
-        self.tiled_btn.setToolTip("Tiled View")
-        self.tiled_btn.clicked.connect(self.switch_to_tiled_layout)
-        right_controls_layout.addWidget(self.tiled_btn)
-        
-        # Spotlight layout button
-        self.spotlight_btn = QPushButton()
-        spotlight_icon = self.get_icon('person', '#e8eaed')
-        if spotlight_icon:
-            self.spotlight_btn.setIcon(spotlight_icon)
-            self.spotlight_btn.setIconSize(QSize(20, 20))
-        else:
-            self.spotlight_btn.setText("◉")
-            self.spotlight_btn.setFont(QFont("Arial", 16))
-        self.spotlight_btn.setFixedSize(40, 40)
-        self.spotlight_btn.setCheckable(True)
-        self.spotlight_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3c4043;
-                border-radius: 20px;
-                border: none;
-                color: #e8eaed;
-            }
-            QPushButton:hover {
-                background-color: #5f6368;
-            }
-            QPushButton:checked {
-                background-color: #007acc;
-                color: #ffffff;
-            }
-        """)
-        self.spotlight_btn.setToolTip("Spotlight View")
-        self.spotlight_btn.clicked.connect(self.switch_to_spotlight_layout)
-        right_controls_layout.addWidget(self.spotlight_btn)
+        layout_btn.setToolTip("Change Layout")
+        layout_btn.clicked.connect(self.show_layout_menu)
+        right_controls_layout.addWidget(layout_btn)
         
         # Settings button
         settings_btn = QPushButton()
@@ -2345,10 +2309,6 @@ class VideoConferenceClient(QMainWindow):
         self.chat_message_received.connect(self.display_chat_message)
         self.chat_debug_signal.connect(lambda msg: self.chat_display.append(msg))
         self.notification_signal.connect(self.show_chat_notification)
-        
-        # Initialize layout button states
-        self.tiled_btn.setChecked(True)
-        self.spotlight_btn.setChecked(False)
         
         # Start GUI update loop
         self.update_gui()
@@ -3086,20 +3046,59 @@ class VideoConferenceClient(QMainWindow):
             threading.Thread(target=stop_in_background, daemon=True).start()
             self.is_presenting = False
     
+    def show_layout_menu(self):
+        """Show popup menu with layout options"""
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2d2d30;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            QMenu::item {
+                color: #e0e0e0;
+                padding: 8px 30px 8px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #007acc;
+            }
+            QMenu::icon {
+                padding-left: 10px;
+            }
+        """)
+        
+        # Tiled layout action
+        tiled_action = QAction("⊞  Tiled View", self)
+        tiled_action.triggered.connect(self.switch_to_tiled_layout)
+        if self.current_layout_mode == "tiled":
+            tiled_action.setCheckable(True)
+            tiled_action.setChecked(True)
+        menu.addAction(tiled_action)
+        
+        # Spotlight layout action
+        spotlight_action = QAction("◉  Spotlight View", self)
+        spotlight_action.triggered.connect(self.switch_to_spotlight_layout)
+        if self.current_layout_mode == "spotlight":
+            spotlight_action.setCheckable(True)
+            spotlight_action.setChecked(True)
+        menu.addAction(spotlight_action)
+        
+        # Show menu at button position
+        sender = self.sender()
+        menu.exec(sender.mapToGlobal(sender.rect().bottomLeft()))
+    
     def switch_to_tiled_layout(self):
         """Switch to tiled layout view"""
         self.layout_mode = "tiled"
         self.current_layout_mode = "tiled"
-        self.tiled_btn.setChecked(True)
-        self.spotlight_btn.setChecked(False)
         self.apply_tiled_layout()
     
     def switch_to_spotlight_layout(self):
         """Switch to spotlight layout view"""
         self.layout_mode = "spotlight"
         self.current_layout_mode = "spotlight"
-        self.tiled_btn.setChecked(False)
-        self.spotlight_btn.setChecked(True)
         self.apply_spotlight_layout()
     
     def change_layout(self, event=None):
@@ -3114,14 +3113,6 @@ class VideoConferenceClient(QMainWindow):
         
         # Apply the layout
         self.apply_layout()
-        
-        # Update button states
-        if self.current_layout_mode == "tiled":
-            self.tiled_btn.setChecked(True)
-            self.spotlight_btn.setChecked(False)
-        else:
-            self.tiled_btn.setChecked(False)
-            self.spotlight_btn.setChecked(True)
     
     def apply_layout(self):
         """Apply the current layout mode"""
