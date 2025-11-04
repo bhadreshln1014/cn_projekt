@@ -2250,6 +2250,10 @@ class VideoConferenceClient(QMainWindow):
         else:
             # Turn video OFF - stop capturing and transmitting
             self.stop_video_capture()
+        
+        # Refresh sidebar if in spotlight mode
+        if self.current_layout_mode == "spotlight":
+            self.update_spotlight_layout()
     
     def toggle_microphone(self):
         """Toggle microphone on/off"""
@@ -2410,6 +2414,7 @@ class VideoConferenceClient(QMainWindow):
                 return
                 
             current_selection = self.recipient_combo.currentText()
+            is_multiple_selection = current_selection.startswith("Multiple (")
             
             # Build list of recipients
             recipients = ["Everyone"]
@@ -2423,11 +2428,31 @@ class VideoConferenceClient(QMainWindow):
             self.recipient_combo.clear()
             self.recipient_combo.addItems(recipients)
             
-            # Restore selection if still valid, otherwise reset to "Everyone"
-            if current_selection not in recipients and not current_selection.startswith("Multiple"):
-                self.recipient_combo.setCurrentText("Everyone")
-            else:
+            # If there was a multiple selection, re-add it and restore
+            if is_multiple_selection and self.selected_recipients:
+                # Validate that selected recipients still exist
+                valid_recipients = []
+                with self.users_lock:
+                    for rid in self.selected_recipients:
+                        if rid in self.users:
+                            valid_recipients.append(rid)
+                
+                if valid_recipients:
+                    self.selected_recipients = valid_recipients
+                    count = len(valid_recipients)
+                    multiple_text = f"Multiple ({count} user{'s' if count > 1 else ''})"
+                    self.recipient_combo.addItem(multiple_text)
+                    self.recipient_combo.setCurrentText(multiple_text)
+                else:
+                    # All selected recipients left, reset
+                    self.selected_recipients = []
+                    self.recipient_combo.setCurrentText("Everyone")
+            elif current_selection in recipients:
+                # Restore previous single selection
                 self.recipient_combo.setCurrentText(current_selection)
+            else:
+                # Reset to "Everyone"
+                self.recipient_combo.setCurrentText("Everyone")
             
             # Update participants list in people panel
             self.update_participants_list()
@@ -3003,11 +3028,11 @@ class VideoConferenceClient(QMainWindow):
         self.spotlight_client_id = spotlight_client_id
         self.spotlight_is_screen = spotlight_is_screen
         
-        # Create sidebar thumbnails for other participants
+        # Create sidebar thumbnails for ALL participants (always show sidebar in spotlight mode)
         participants_to_show = []
         
-        # Add self if showing self video
-        if self.show_self_video:
+        # Add self if showing self video (camera is ON)
+        if self.show_self_video and self.camera_btn.isChecked():
             participants_to_show.append(('self', self.client_id, self.username))
         
         # Add other participants (excluding spotlight participant if it's a video)
@@ -3023,6 +3048,12 @@ class VideoConferenceClient(QMainWindow):
         for participant_type, client_id, username in participants_to_show:
             thumbnail = self.create_sidebar_thumbnail(participant_type, client_id, username)
             self.sidebar_widget_layout.insertWidget(self.sidebar_widget_layout.count() - 1, thumbnail)
+        
+        # Always show sidebar in spotlight mode if there are participants
+        if len(participants_to_show) > 0:
+            self.participants_sidebar.show()
+        else:
+            self.participants_sidebar.hide()
     
     def create_sidebar_thumbnail(self, participant_type, client_id, username):
         """Create a thumbnail widget for the sidebar"""
