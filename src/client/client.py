@@ -884,6 +884,7 @@ class VideoConferenceClient(QMainWindow):
                                 timestamp = rest[:8]
                                 chat_message = rest[9:] if len(rest) > 9 else ""  # Skip "HH:MM:SS:"
                                 
+                                print(f"DEBUG: Received CHAT from {sender_username}: {chat_message}")  # DEBUG
                                 # Display in chat window (done in main thread via signal)
                                 self.chat_message_received.emit(sender_username, timestamp, chat_message)
                         except Exception as e:
@@ -2436,6 +2437,7 @@ class VideoConferenceClient(QMainWindow):
     
     def display_chat_message(self, username, timestamp, message, is_system=False, is_private=False, recipient_names=None):
         """Display a chat message in the chat window"""
+        print(f"DEBUG: display_chat_message called - user={username}, msg={message}, chat_visible={self.chat_panel_visible}")  # DEBUG
         if is_system:
             # System message (e.g., user joined/left)
             text = f"[SYSTEM] {message}"
@@ -2454,10 +2456,13 @@ class VideoConferenceClient(QMainWindow):
         scrollbar.setValue(scrollbar.maximum())
         
         # Show notification if chat panel is not visible and message is not from self
+        print(f"DEBUG: Checking notification - chat_visible={self.chat_panel_visible}, username={username}, self.username={self.username}")  # DEBUG
         if not self.chat_panel_visible and username != self.username:
             print(f"DEBUG: Emitting notification signal for {username}: {message}")  # DEBUG
             notification_type = "Private" if is_private else "Message"
             self.notification_signal.emit(username, message)
+        else:
+            print(f"DEBUG: NOT showing notification - condition failed")  # DEBUG
     
     def show_recipient_selector(self):
         """Show dialog to select multiple recipients"""
