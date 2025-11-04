@@ -113,6 +113,7 @@ class VideoConferenceClient(QMainWindow):
         
     def show_chat_notification(self, sender, message, notification_type="Message"):
         """Show a notification popup for incoming chat messages"""
+        print(f"DEBUG: Notification triggered for {sender}: {message}")  # DEBUG
         # Create notification widget
         notification = QFrame(self)
         notification.setFixedSize(320, 90)
@@ -2454,6 +2455,7 @@ class VideoConferenceClient(QMainWindow):
         
         # Show notification if chat panel is not visible and message is not from self
         if not self.chat_panel_visible and username != self.username:
+            print(f"DEBUG: Emitting notification signal for {username}: {message}")  # DEBUG
             notification_type = "Private" if is_private else "Message"
             self.notification_signal.emit(username, message)
     
