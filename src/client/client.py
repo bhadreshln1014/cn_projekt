@@ -537,6 +537,10 @@ class VideoConferenceClient(QMainWindow):
                 self.screen_sharing_active = True
                 self.current_presenter_id = self.client_id  # Mark self as presenter
                 
+                print(f"[{self.get_timestamp()}] DEBUG: Screen sharing granted")
+                print(f"[{self.get_timestamp()}] DEBUG: current_presenter_id set to {self.current_presenter_id}")
+                print(f"[{self.get_timestamp()}] DEBUG: layout_mode={self.layout_mode}, current_layout_mode={self.current_layout_mode}")
+                
                 # Start screen capture thread (sends via UDP)
                 screen_thread = threading.Thread(target=self.capture_and_send_screen, daemon=True)
                 screen_thread.start()
@@ -2244,6 +2248,8 @@ class VideoConferenceClient(QMainWindow):
     def toggle_self_video(self):
         """Toggle video capture on/off"""
         self.show_self_video = self.camera_btn.isChecked()
+        print(f"[{self.get_timestamp()}] DEBUG: Toggling video - camera_checked={self.camera_btn.isChecked()}, show_self_video={self.show_self_video}")
+        
         if self.show_self_video:
             # Turn video ON - start capturing and transmitting
             self.start_video_capture()
@@ -2252,8 +2258,12 @@ class VideoConferenceClient(QMainWindow):
             self.stop_video_capture()
         
         # Refresh sidebar if in spotlight mode
+        print(f"[{self.get_timestamp()}] DEBUG: Current layout mode: {self.current_layout_mode}")
         if self.current_layout_mode == "spotlight":
+            print(f"[{self.get_timestamp()}] DEBUG: Refreshing spotlight layout after camera toggle")
             self.update_spotlight_layout()
+        else:
+            print(f"[{self.get_timestamp()}] DEBUG: Not in spotlight mode, skipping sidebar refresh")
     
     def toggle_microphone(self):
         """Toggle microphone on/off"""
@@ -2287,16 +2297,21 @@ class VideoConferenceClient(QMainWindow):
         try:
             recipient = self.recipient_combo.currentText()
             
+            print(f"[{self.get_timestamp()}] DEBUG: Sending chat - recipient='{recipient}'")
+            print(f"[{self.get_timestamp()}] DEBUG: selected_recipients={self.selected_recipients}")
+            
             if recipient == "Everyone":
                 # Public message
                 chat_data = f"CHAT:{message}\n"
                 self.tcp_socket.send(chat_data.encode('utf-8'))
+                print(f"[{self.get_timestamp()}] DEBUG: Sent public chat")
             elif recipient.startswith("Multiple ("):
                 # Multiple recipients selected
                 if self.selected_recipients:
                     recipient_ids = ",".join(map(str, self.selected_recipients))
                     chat_data = f"PRIVATE_CHAT:{recipient_ids}:{message}\n"
                     self.tcp_socket.send(chat_data.encode('utf-8'))
+                    print(f"[{self.get_timestamp()}] DEBUG: Sent private chat to multiple: {recipient_ids}")
                 else:
                     QMessageBox.warning(self, "No Recipients", "Please select recipients first.")
                     return
@@ -2313,6 +2328,7 @@ class VideoConferenceClient(QMainWindow):
                 if recipient_id is not None:
                     chat_data = f"PRIVATE_CHAT:{recipient_id}:{message}\n"
                     self.tcp_socket.send(chat_data.encode('utf-8'))
+                    print(f"[{self.get_timestamp()}] DEBUG: Sent private chat to {recipient} (ID: {recipient_id})")
                 else:
                     QMessageBox.critical(self, "Error", "Recipient not found.")
                     return
@@ -3004,6 +3020,11 @@ class VideoConferenceClient(QMainWindow):
     
     def update_spotlight_layout(self):
         """Update spotlight mode layout - main content + sidebar thumbnails"""
+        print(f"[{self.get_timestamp()}] DEBUG: Updating spotlight layout")
+        print(f"[{self.get_timestamp()}] DEBUG: current_presenter_id={self.current_presenter_id}")
+        print(f"[{self.get_timestamp()}] DEBUG: show_self_video={self.show_self_video}, camera_checked={self.camera_btn.isChecked()}")
+        print(f"[{self.get_timestamp()}] DEBUG: capturing={self.capturing}")
+        
         # Clear existing sidebar widgets
         for i in reversed(range(self.sidebar_widget_layout.count())):
             widget = self.sidebar_widget_layout.itemAt(i).widget()
@@ -3034,6 +3055,9 @@ class VideoConferenceClient(QMainWindow):
         # Add self if showing self video (camera is ON)
         if self.show_self_video and self.camera_btn.isChecked():
             participants_to_show.append(('self', self.client_id, self.username))
+            print(f"[{self.get_timestamp()}] DEBUG: Added self to sidebar")
+        else:
+            print(f"[{self.get_timestamp()}] DEBUG: Self NOT added to sidebar (show_self_video={self.show_self_video}, camera_checked={self.camera_btn.isChecked()})")
         
         # Add other participants (excluding spotlight participant if it's a video)
         with self.streams_lock:
@@ -3043,6 +3067,9 @@ class VideoConferenceClient(QMainWindow):
                         continue  # Skip the spotlight participant
                     username = self.users.get(client_id, f"User {client_id}")
                     participants_to_show.append(('other', client_id, username))
+                    print(f"[{self.get_timestamp()}] DEBUG: Added {username} to sidebar")
+        
+        print(f"[{self.get_timestamp()}] DEBUG: Total participants in sidebar: {len(participants_to_show)}")
         
         # Create thumbnail widgets
         for participant_type, client_id, username in participants_to_show:
