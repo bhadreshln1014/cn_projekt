@@ -113,10 +113,9 @@ class VideoConferenceClient(QMainWindow):
         
     def show_chat_notification(self, sender, message, notification_type="Message"):
         """Show a notification popup for incoming chat messages"""
-        print(f"DEBUG: Notification triggered for {sender}: {message}")  # DEBUG
         # Create notification widget
         notification = QFrame(self)
-        notification.setFixedSize(320, 90)
+        notification.setFixedSize(340, 90)
         notification.setStyleSheet("""
             QFrame {
                 background-color: #2d2d30;
@@ -124,20 +123,12 @@ class VideoConferenceClient(QMainWindow):
                 border-radius: 10px;
             }
         """)
-        notification.setCursor(Qt.CursorShape.PointingHandCursor)
         
-        layout = QVBoxLayout(notification)
-        layout.setSpacing(8)
-        layout.setContentsMargins(15, 12, 15, 12)
+        main_layout = QHBoxLayout(notification)
+        main_layout.setContentsMargins(15, 12, 15, 12)
+        main_layout.setSpacing(12)
         
-        # Header with sender name
-        header = QWidget()
-        header.setStyleSheet("background: transparent;")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(8)
-        
-        # Avatar placeholder (use first letter of sender name)
+        # Avatar (circular with first letter of sender name)
         avatar = QLabel(sender[0].upper() if sender else "?")
         avatar.setFixedSize(40, 40)
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -148,40 +139,59 @@ class VideoConferenceClient(QMainWindow):
                 border-radius: 20px;
                 font-size: 18px;
                 font-weight: bold;
+                border: none;
             }
         """)
-        header_layout.addWidget(avatar)
+        main_layout.addWidget(avatar)
         
-        # Sender name and message container
+        # Text container (sender name + message)
         text_container = QWidget()
-        text_container.setStyleSheet("background: transparent;")
+        text_container.setStyleSheet("background: transparent; border: none;")
         text_layout = QVBoxLayout(text_container)
         text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(2)
+        text_layout.setSpacing(4)
         
         # Sender name
         sender_label = QLabel(sender)
         sender_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        sender_label.setStyleSheet("color: #ffffff; background: transparent;")
+        sender_label.setStyleSheet("color: #ffffff; background: transparent; border: none;")
         text_layout.addWidget(sender_label)
         
         # Message preview (truncate if too long)
-        preview = message[:40] + "..." if len(message) > 40 else message
+        preview = message[:35] + "..." if len(message) > 35 else message
         message_label = QLabel(preview)
         message_label.setFont(QFont("Arial", 9))
-        message_label.setStyleSheet("color: #e0e0e0; background: transparent;")
-        message_label.setWordWrap(True)
+        message_label.setStyleSheet("color: #e0e0e0; background: transparent; border: none;")
+        message_label.setWordWrap(False)
         text_layout.addWidget(message_label)
         
-        header_layout.addWidget(text_container, 1)
-        layout.addWidget(header)
+        main_layout.addWidget(text_container, 1)
         
-        # Make notification clickable
+        # Close button
+        close_btn = QPushButton("×")
+        close_btn.setFixedSize(24, 24)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #e0e0e0;
+                border: none;
+                font-size: 20px;
+                font-weight: bold;
+                border-radius: 12px;
+            }
+            QPushButton:hover {
+                background-color: #3e3e42;
+            }
+        """)
+        close_btn.clicked.connect(lambda: self.hide_notification(notification))
+        main_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        
+        # Make notification clickable (except close button)
         notification.mousePressEvent = lambda event: self.notification_clicked(notification)
         
         # Position notification (stack them if multiple)
         y_offset = 80 + (len(self.active_notifications) * 100)
-        notification.move(self.width() - 340, y_offset)
+        notification.move(self.width() - 360, y_offset)
         notification.show()
         notification.raise_()  # Bring to front
         
@@ -206,7 +216,7 @@ class VideoConferenceClient(QMainWindow):
             # Reposition remaining notifications
             for idx, notif in enumerate(self.active_notifications):
                 y_offset = 80 + (idx * 100)
-                notif.move(self.width() - 340, y_offset)
+                notif.move(self.width() - 360, y_offset)
         
     def connect_to_server(self, server_ip, username):
         """Connect to the server"""
@@ -884,7 +894,6 @@ class VideoConferenceClient(QMainWindow):
                                 timestamp = rest[:8]
                                 chat_message = rest[9:] if len(rest) > 9 else ""  # Skip "HH:MM:SS:"
                                 
-                                print(f"DEBUG: Received CHAT from {sender_username}: {chat_message}")  # DEBUG
                                 # Display in chat window (done in main thread via signal)
                                 self.chat_message_received.emit(sender_username, timestamp, chat_message)
                         except Exception as e:
@@ -2437,7 +2446,6 @@ class VideoConferenceClient(QMainWindow):
     
     def display_chat_message(self, username, timestamp, message, is_system=False, is_private=False, recipient_names=None):
         """Display a chat message in the chat window"""
-        print(f"DEBUG: display_chat_message called - user={username}, msg={message}, chat_visible={self.chat_panel_visible}")  # DEBUG
         if is_system:
             # System message (e.g., user joined/left)
             text = f"[SYSTEM] {message}"
@@ -2456,13 +2464,9 @@ class VideoConferenceClient(QMainWindow):
         scrollbar.setValue(scrollbar.maximum())
         
         # Show notification if chat panel is not visible and message is not from self
-        print(f"DEBUG: Checking notification - chat_visible={self.chat_panel_visible}, username='{username}', self.username='{self.username}', match={username == self.username}")  # DEBUG
         if not self.chat_panel_visible and username != self.username:
-            print(f"DEBUG: Emitting notification signal for {username}: {message}")  # DEBUG
             notification_type = "Private" if is_private else "Message"
             self.notification_signal.emit(username, message)
-        else:
-            print(f"DEBUG: NOT showing notification - condition failed")  # DEBUG
     
     def show_recipient_selector(self):
         """Show dialog to select multiple recipients"""
