@@ -2456,7 +2456,7 @@ class VideoConferenceClient(QMainWindow):
         scrollbar.setValue(scrollbar.maximum())
         
         # Show notification if chat panel is not visible and message is not from self
-        print(f"DEBUG: Checking notification - chat_visible={self.chat_panel_visible}, username={username}, self.username={self.username}")  # DEBUG
+        print(f"DEBUG: Checking notification - chat_visible={self.chat_panel_visible}, username='{username}', self.username='{self.username}', match={username == self.username}")  # DEBUG
         if not self.chat_panel_visible and username != self.username:
             print(f"DEBUG: Emitting notification signal for {username}: {message}")  # DEBUG
             notification_type = "Private" if is_private else "Message"
