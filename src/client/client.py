@@ -3387,7 +3387,10 @@ class VideoConferenceClient(QMainWindow):
             def start_in_background():
                 try:
                     success = self.start_screen_sharing()
+                    print(f"[DEBUG] start_screen_sharing returned: {success}")
+                    
                     if not success:
+                        print(f"[DEBUG] Screen sharing denied - showing warning dialog")
                         # Another user is presenting - revert button and show message
                         QTimer.singleShot(0, lambda: self.share_screen_btn.setChecked(False))
                         
@@ -3397,20 +3400,28 @@ class VideoConferenceClient(QMainWindow):
                             with self.users_lock:
                                 presenter_name = self.users.get(self.current_presenter_id, f"User {self.current_presenter_id}")
                         
+                        print(f"[DEBUG] Presenter name: {presenter_name}")
+                        
                         # Show warning message in main thread
                         def show_warning():
+                            print(f"[DEBUG] Creating warning dialog...")
                             msg = QMessageBox(self)
                             msg.setIcon(QMessageBox.Icon.Warning)
                             msg.setWindowTitle("Screen Sharing Unavailable")
                             msg.setText(f"{presenter_name} is currently presenting.")
                             msg.setInformativeText("Only one user can share their screen at a time.\nPlease wait until they finish.")
                             msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+                            msg.setDefaultButton(QMessageBox.StandardButton.Ok)
                             msg.setWindowFlags(msg.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+                            print(f"[DEBUG] Showing warning dialog...")
                             msg.exec()
+                            print(f"[DEBUG] Warning dialog closed")
                         
                         QTimer.singleShot(0, show_warning)
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error in start_in_background: {e}")
+                    import traceback
+                    traceback.print_exc()
                     QTimer.singleShot(0, lambda: self.share_screen_btn.setChecked(False))
                     
                     def show_error():
@@ -3419,6 +3430,7 @@ class VideoConferenceClient(QMainWindow):
                         msg.setWindowTitle("Error")
                         msg.setText(f"Failed to start screen sharing: {e}")
                         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+                        msg.setDefaultButton(QMessageBox.StandardButton.Ok)
                         msg.setWindowFlags(msg.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
                         msg.exec()
                     
