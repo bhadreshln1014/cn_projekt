@@ -431,15 +431,15 @@ class VideoConferenceClient(QMainWindow):
         notification_width = 340
         notification_height = 90
         notification_gap = 10
-        margin_bottom = 80  # Space from bottom edge
-        margin_right = 20  # Space from right edge
+        margin_bottom = 15  # Very small margin from bottom edge
+        margin_right = 15  # Very small margin from right edge
         
         # Get the main window geometry
         window_width = self.width()
         window_height = self.height()
         
         for idx, notif in enumerate(self.active_notifications):
-            # Calculate position from bottom-right corner
+            # Calculate position from bottom-right corner, stacking upwards
             x_pos = window_width - notification_width - margin_right
             y_pos = window_height - margin_bottom - ((idx + 1) * (notification_height + notification_gap))
             
@@ -447,6 +447,7 @@ class VideoConferenceClient(QMainWindow):
             if y_pos < 0:
                 y_pos = 10  # If too many notifications, start from top
             
+            print(f"[NOTIFICATION DEBUG] Positioning notification {idx} at x={x_pos}, y={y_pos} (window: {window_width}x{window_height})")
             notif.move(x_pos, y_pos)
             notif.raise_()  # Ensure it stays on top
     
