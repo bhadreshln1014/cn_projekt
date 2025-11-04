@@ -1154,6 +1154,7 @@ class VideoConferenceClient(QMainWindow):
                 'download': 'mdi.download',
                 'delete': 'mdi.delete',
                 'refresh': 'mdi.refresh',
+                'layout': 'mdi.view-dashboard',
             }
             mdi_name = icon_map.get(icon_name, 'mdi.help-circle')
             try:
@@ -1748,7 +1749,7 @@ class VideoConferenceClient(QMainWindow):
         
         # Layout menu button
         layout_btn = QPushButton()
-        layout_icon = self.get_icon('view_module', '#e8eaed')
+        layout_icon = self.get_icon('layout', '#e8eaed')
         if layout_icon:
             layout_btn.setIcon(layout_icon)
             layout_btn.setIconSize(QSize(20, 20))
@@ -3447,8 +3448,18 @@ class VideoConferenceClient(QMainWindow):
         with self.screen_lock:
             screen_frame_copy = self.shared_screen_frame
         
-        if screen_frame_copy is not None and self.current_presenter_id is not None:
-            display_streams['screen'] = ('screen', screen_frame_copy, self.current_presenter_id)
+        # Show screen if we have a frame and a presenter
+        if screen_frame_copy is not None:
+            presenter_id = self.current_presenter_id if self.current_presenter_id is not None else self.client_id
+            display_streams['screen'] = ('screen', screen_frame_copy, presenter_id)
+        
+        # Check if we need to recreate the grid (number of tiles changed)
+        num_tiles_needed = len(display_streams)
+        num_tiles_available = len(self.video_labels)
+        
+        if num_tiles_needed != num_tiles_available:
+            # Recreate grid with correct number of tiles
+            self.create_video_grid()
         
         # Calculate video size
         container_width = self.video_frame.width()
