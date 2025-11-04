@@ -208,8 +208,6 @@ class VideoConferenceClient(QMainWindow):
     
     def show_user_join_notification(self, username):
         """Show a notification when a user joins"""
-        print(f"[DEBUG] show_user_join_notification called for: {username}")
-        
         # Create notification widget
         notification = QFrame(self)
         notification.setFixedSize(340, 90)
@@ -952,19 +950,14 @@ class VideoConferenceClient(QMainWindow):
                                 new_user_count = len(self.users)
                                 new_users = set(self.users.values())  # Get new usernames
                                 
-                                print(f"[DEBUG] USERS update: old={old_users}, new={new_users}, initial_received={self.initial_user_list_received}")
-                                
                                 # Detect who joined (only after initial user list is received)
                                 if self.initial_user_list_received:
                                     joined_users = new_users - old_users
-                                    print(f"[DEBUG] Joined users: {joined_users}")
                                     for username in joined_users:
                                         if username != self.username:  # Don't notify for yourself
-                                            print(f"[DEBUG] Emitting join signal for: {username}")
                                             self.user_join_signal.emit(username)
                                 else:
                                     # Mark that we've received the initial user list
-                                    print(f"[DEBUG] Marking initial user list as received")
                                     self.initial_user_list_received = True
                             
                             # Clean up video streams for disconnected users
