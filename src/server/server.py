@@ -312,47 +312,61 @@ class VideoConferenceServer:
         """Receive audio streams from clients, mix them, and broadcast"""
         print(f"[{self.get_timestamp()}] Audio receiver/mixer started")
         
+        # Track last broadcast time to control mixing rate
+        last_broadcast_time = time.time()
+        broadcast_interval = AUDIO_CHUNK / AUDIO_RATE  # Match the audio chunk timing
+        
         while self.running:
             try:
-                # Receive audio packet
-                data, addr = self.audio_socket.recvfrom(MAX_PACKET_SIZE)
+                # Receive audio packet with timeout to allow periodic mixing
+                self.audio_socket.settimeout(broadcast_interval / 2)
                 
-                if len(data) < 4:
-                    continue
+                try:
+                    data, addr = self.audio_socket.recvfrom(MAX_PACKET_SIZE)
+                    
+                    if len(data) >= 4:
+                        # Extract client_id from packet (first 4 bytes)
+                        client_id = struct.unpack('I', data[:4])[0]
+                        audio_data = data[4:]
+                        
+                        # Update audio address for this client
+                        with self.clients_lock:
+                            if client_id in self.clients:
+                                self.clients[client_id]['audio_address'] = addr
+                        
+                        # Store the audio data with timestamp
+                        current_time = time.time()
+                        with self.audio_lock:
+                            self.audio_buffers[client_id] = audio_data
+                            self.audio_timestamps[client_id] = current_time
+                except socket.timeout:
+                    # Timeout is normal - just continue to mixing
+                    pass
                 
-                # Extract client_id from packet (first 4 bytes)
-                client_id = struct.unpack('I', data[:4])[0]
-                audio_data = data[4:]
-                
-                # Update audio address for this client
-                with self.clients_lock:
-                    if client_id in self.clients:
-                        self.clients[client_id]['audio_address'] = addr
-                
-                # Store the audio data with timestamp
+                # Mix and broadcast at regular intervals (not on every packet)
                 current_time = time.time()
-                with self.audio_lock:
-                    self.audio_buffers[client_id] = audio_data
-                    self.audio_timestamps[client_id] = current_time
+                if current_time - last_broadcast_time >= broadcast_interval:
+                    # Clean up old audio buffers before mixing
+                    with self.audio_lock:
+                        stale_clients = []
+                        for cid, timestamp in list(self.audio_timestamps.items()):
+                            if current_time - timestamp > 0.5:
+                                stale_clients.append(cid)
+                        
+                        for cid in stale_clients:
+                            if cid in self.audio_buffers:
+                                del self.audio_buffers[cid]
+                            if cid in self.audio_timestamps:
+                                del self.audio_timestamps[cid]
                     
-                    # Clean up old audio buffers (older than 0.5 seconds = likely muted/disconnected)
-                    stale_clients = []
-                    for cid, timestamp in self.audio_timestamps.items():
-                        if current_time - timestamp > 0.5:
-                            stale_clients.append(cid)
-                    
-                    for cid in stale_clients:
-                        if cid in self.audio_buffers:
-                            del self.audio_buffers[cid]
-                        if cid in self.audio_timestamps:
-                            del self.audio_timestamps[cid]
-                
-                # Mix and broadcast audio
-                self.mix_and_broadcast_audio()
+                    # Mix and broadcast
+                    self.mix_and_broadcast_audio()
+                    last_broadcast_time = current_time
                 
             except Exception as e:
                 if self.running:
                     print(f"[{self.get_timestamp()}] Error receiving audio: {e}")
+                    time.sleep(0.01)
     
     def mix_and_broadcast_audio(self):
         """Mix all audio streams and broadcast to all clients"""

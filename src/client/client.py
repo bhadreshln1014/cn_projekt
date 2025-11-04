@@ -608,16 +608,30 @@ class VideoConferenceClient(QMainWindow):
         send_interval = AUDIO_CHUNK / AUDIO_RATE  # Natural interval based on chunk size
         last_send_time = time.time()
         
+        # Noise gate threshold to reduce echo and background noise
+        NOISE_GATE_THRESHOLD = 100  # Adjust based on testing (higher = more aggressive filtering)
+        
         while self.audio_capturing and self.connected:
             try:
                 # Read audio data (non-blocking with overflow handling)
                 audio_data = self.audio_stream_input.read(AUDIO_CHUNK, exception_on_overflow=False)
                 
-                # Prepend client_id to the audio data
-                packet = struct.pack('I', self.client_id) + audio_data
+                # Apply noise gate to reduce echo and background noise
+                # Convert to numpy array for processing
+                audio_array = np.frombuffer(audio_data, dtype=np.int16)
                 
-                # Send via UDP
-                self.audio_udp_socket.sendto(packet, (self.server_address, SERVER_AUDIO_PORT))
+                # Calculate RMS (loudness) of the audio
+                rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
+                
+                # Only send audio if it's above the noise gate threshold
+                # This prevents sending back echo from speakers or low-level noise
+                if rms > NOISE_GATE_THRESHOLD:
+                    # Prepend client_id to the audio data
+                    packet = struct.pack('I', self.client_id) + audio_data
+                    
+                    # Send via UDP
+                    self.audio_udp_socket.sendto(packet, (self.server_address, SERVER_AUDIO_PORT))
+                # else: audio too quiet, don't send (reduces echo and feedback)
                 
                 # Precise timing control to maintain consistent send rate
                 # This is critical for smooth playback on the receiving end
