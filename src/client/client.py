@@ -822,6 +822,8 @@ class VideoConferenceClient(QMainWindow):
                                         elif rid == self.client_id:
                                             recipient_names.append("You")
                                 
+                                print(f"[{self.get_timestamp()}] DEBUG: About to display private message - recipient_names={recipient_names}")
+                                
                                 # Display in chat window (must be done in main thread)
                                 # Fix: Capture variables properly in lambda
                                 QTimer.singleShot(0, lambda u=sender_username, t=timestamp, m=chat_message, r=recipient_names:
@@ -2358,6 +2360,8 @@ class VideoConferenceClient(QMainWindow):
     
     def display_chat_message(self, username, timestamp, message, is_system=False, is_private=False, recipient_names=None):
         """Display a chat message in the chat window"""
+        print(f"[{self.get_timestamp()}] DEBUG: display_chat_message called - username={username}, is_private={is_private}, recipient_names={recipient_names}")
+        
         if is_system:
             # System message (e.g., user joined/left)
             text = f"[SYSTEM] {message}"
@@ -2365,10 +2369,12 @@ class VideoConferenceClient(QMainWindow):
             # Private message
             recipient_text = f" to {', '.join(recipient_names)}" if recipient_names else ""
             text = f"[{timestamp}] [PRIVATE] {username}{recipient_text}: {message}"
+            print(f"[{self.get_timestamp()}] DEBUG: Private message text: {text}")
         else:
             # Regular chat message
             text = f"[{timestamp}] {username}: {message}"
         
+        print(f"[{self.get_timestamp()}] DEBUG: Appending to chat display: {text}")
         self.chat_display.append(text)
         
         # Auto-scroll to bottom
