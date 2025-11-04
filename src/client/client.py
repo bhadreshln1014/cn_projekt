@@ -203,9 +203,10 @@ class VideoConferenceClient(QMainWindow):
         
         # Position notification at bottom right, above control buttons (stack upwards)
         notification_height = 90
-        margin_bottom = 120  # Space above control buttons
+        margin_bottom = 200  # Space above control buttons (increased to clear video area)
+        margin_right = 20  # Space from right edge
         y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
-        notification.move(self.width() - 360, y_offset)
+        notification.move(self.width() - 360 - margin_right, y_offset)
         
         # Ensure notification is properly displayed on Windows
         notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -300,9 +301,10 @@ class VideoConferenceClient(QMainWindow):
         
         # Position notification at bottom right, above control buttons (stack upwards)
         notification_height = 90
-        margin_bottom = 120  # Space above control buttons
+        margin_bottom = 200  # Space above control buttons (increased to clear video area)
+        margin_right = 20  # Space from right edge
         y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
-        notification.move(self.width() - 360, y_offset)
+        notification.move(self.width() - 360 - margin_right, y_offset)
         
         # Ensure notification is properly displayed on Windows
         notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -397,9 +399,10 @@ class VideoConferenceClient(QMainWindow):
         
         # Position notification at bottom right, above control buttons (stack upwards)
         notification_height = 90
-        margin_bottom = 120  # Space above control buttons
+        margin_bottom = 200  # Space above control buttons (increased to clear video area)
+        margin_right = 20  # Space from right edge
         y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
-        notification.move(self.width() - 360, y_offset)
+        notification.move(self.width() - 360 - margin_right, y_offset)
         
         # Ensure notification is properly displayed on Windows
         notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -428,10 +431,11 @@ class VideoConferenceClient(QMainWindow):
             
             # Reposition remaining notifications (stack upwards from bottom)
             notification_height = 90
-            margin_bottom = 120  # Space above control buttons
+            margin_bottom = 200  # Space above control buttons (increased to clear video area)
+            margin_right = 20  # Space from right edge
             for idx, notif in enumerate(self.active_notifications):
                 y_offset = self.height() - margin_bottom - (idx + 1) * (notification_height + 10)
-                notif.move(self.width() - 360, y_offset)
+                notif.move(self.width() - 360 - margin_right, y_offset)
         
     def connect_to_server(self, server_ip, username):
         """Connect to the server"""
