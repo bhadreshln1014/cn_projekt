@@ -201,8 +201,10 @@ class VideoConferenceClient(QMainWindow):
         # Make notification clickable (except close button)
         notification.mousePressEvent = lambda event: self.notification_clicked(notification)
         
-        # Position notification (stack them if multiple)
-        y_offset = 80 + (len(self.active_notifications) * 100)
+        # Position notification at bottom right, above control buttons (stack upwards)
+        notification_height = 90
+        margin_bottom = 120  # Space above control buttons
+        y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
         notification.move(self.width() - 360, y_offset)
         
         # Ensure notification is properly displayed on Windows
@@ -296,8 +298,10 @@ class VideoConferenceClient(QMainWindow):
         close_btn.clicked.connect(lambda: self.hide_notification(notification))
         main_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
         
-        # Position notification (stack them if multiple)
-        y_offset = 80 + (len(self.active_notifications) * 100)
+        # Position notification at bottom right, above control buttons (stack upwards)
+        notification_height = 90
+        margin_bottom = 120  # Space above control buttons
+        y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
         notification.move(self.width() - 360, y_offset)
         
         # Ensure notification is properly displayed on Windows
@@ -391,8 +395,10 @@ class VideoConferenceClient(QMainWindow):
         close_btn.clicked.connect(lambda: self.hide_notification(notification))
         main_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
         
-        # Position notification (stack them if multiple)
-        y_offset = 80 + (len(self.active_notifications) * 100)
+        # Position notification at bottom right, above control buttons (stack upwards)
+        notification_height = 90
+        margin_bottom = 120  # Space above control buttons
+        y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
         notification.move(self.width() - 360, y_offset)
         
         # Ensure notification is properly displayed on Windows
@@ -420,9 +426,11 @@ class VideoConferenceClient(QMainWindow):
             self.active_notifications.remove(notification)
             notification.deleteLater()
             
-            # Reposition remaining notifications
+            # Reposition remaining notifications (stack upwards from bottom)
+            notification_height = 90
+            margin_bottom = 120  # Space above control buttons
             for idx, notif in enumerate(self.active_notifications):
-                y_offset = 80 + (idx * 100)
+                y_offset = self.height() - margin_bottom - (idx + 1) * (notification_height + 10)
                 notif.move(self.width() - 360, y_offset)
         
     def connect_to_server(self, server_ip, username):
@@ -3354,12 +3362,25 @@ class VideoConferenceClient(QMainWindow):
             # Start screen sharing in background thread to avoid blocking GUI
             def start_in_background():
                 try:
-                    if not self.start_screen_sharing():
-                        # Revert on failure
-                        QTimer.singleShot(0, lambda: QMessageBox.warning(self, "Screen Sharing", 
-                                                                          "Could not start screen sharing. Another user may be presenting."))
+                    success = self.start_screen_sharing()
+                    if not success:
+                        # Another user is presenting - revert button and show message
+                        QTimer.singleShot(0, lambda: self.share_screen_btn.setChecked(False))
+                        
+                        # Get presenter name if available
+                        presenter_name = "Another user"
+                        if self.current_presenter_id is not None:
+                            with self.users_lock:
+                                presenter_name = self.users.get(self.current_presenter_id, f"User {self.current_presenter_id}")
+                        
+                        QTimer.singleShot(0, lambda: QMessageBox.warning(
+                            self, 
+                            "Screen Sharing Unavailable", 
+                            f"{presenter_name} is currently presenting.\n\nOnly one user can share their screen at a time. Please wait until they finish."
+                        ))
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error in start_in_background: {e}")
+                    QTimer.singleShot(0, lambda: self.share_screen_btn.setChecked(False))
                     QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", f"Failed to start screen sharing: {e}"))
             
             threading.Thread(target=start_in_background, daemon=True).start()
