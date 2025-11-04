@@ -744,7 +744,9 @@ class VideoConferenceClient(QMainWindow):
                         try:
                             users = pickle.loads(bytes.fromhex(user_data))
                             with self.users_lock:
+                                old_user_count = len(self.users)
                                 self.users = {u['id']: u['username'] for u in users}
+                                new_user_count = len(self.users)
                             
                             # Clean up video streams for disconnected users
                             with self.streams_lock:
@@ -761,6 +763,12 @@ class VideoConferenceClient(QMainWindow):
                             
                             # Update recipient dropdown
                             self.update_recipient_list()
+                            
+                            # Re-evaluate layout when user count changes
+                            if old_user_count != new_user_count:
+                                print(f"[{self.get_timestamp()}] DEBUG: User count changed from {old_user_count} to {new_user_count}, re-evaluating layout")
+                                if self.layout_mode == "auto":
+                                    QTimer.singleShot(100, self.determine_and_apply_layout)
                         except:
                             pass
                     
@@ -788,13 +796,17 @@ class VideoConferenceClient(QMainWindow):
                     elif message.startswith("PRIVATE_CHAT:"):
                         # Received private chat message: PRIVATE_CHAT:sender_id:sender_username:timestamp:recipient_ids:message
                         try:
+                            print(f"[{self.get_timestamp()}] DEBUG: Received PRIVATE_CHAT message: {message[:100]}")
                             parts = message.split(":", 5)
+                            print(f"[{self.get_timestamp()}] DEBUG: Split into {len(parts)} parts")
                             if len(parts) >= 6:
                                 sender_id = int(parts[1])
                                 sender_username = parts[2]
                                 timestamp = parts[3]
                                 recipient_ids_str = parts[4]
                                 chat_message = parts[5]
+                                
+                                print(f"[{self.get_timestamp()}] DEBUG: sender={sender_username}, recipients={recipient_ids_str}, message={chat_message[:50]}")
                                 
                                 # Get recipient names
                                 recipient_ids = [int(rid) for rid in recipient_ids_str.split(",")]
@@ -2436,6 +2448,7 @@ class VideoConferenceClient(QMainWindow):
             recipients = ["Everyone"]
             
             with self.users_lock:
+                print(f"[{self.get_timestamp()}] DEBUG: Building recipient list from users: {self.users}")
                 for user_id, username in self.users.items():
                     if user_id != self.client_id:  # Don't include self
                         recipients.append(username)
