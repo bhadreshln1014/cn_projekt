@@ -738,16 +738,26 @@ class VideoConferenceClient(QMainWindow):
                 
                 # Add to buffer if playback is enabled
                 if self.audio_playing:
-                    try:
-                        # Try to add to buffer without blocking
-                        self.audio_buffer.put_nowait(data)
-                    except queue.Full:
-                        # Buffer is full - drop oldest frame and add new one
-                        try:
-                            self.audio_buffer.get_nowait()
-                            self.audio_buffer.put_nowait(data)
-                        except:
-                            pass  # Skip this frame if buffer operations fail
+                    # Check if audio data is not just silence/noise
+                    # Skip packets that are too small or just zeros (silence from muted/disconnected users)
+                    if len(data) >= AUDIO_CHUNK * AUDIO_FORMAT_BYTES:
+                        # Calculate RMS (root mean square) to detect actual audio content
+                        audio_array = struct.unpack(f'{len(data)//2}h', data)
+                        rms = sum(abs(sample) for sample in audio_array) / len(audio_array)
+                        
+                        # Only add to buffer if RMS is above threshold (actual audio, not silence)
+                        # Threshold of 50 filters out background noise and silence
+                        if rms > 50:
+                            try:
+                                # Try to add to buffer without blocking
+                                self.audio_buffer.put_nowait(data)
+                            except queue.Full:
+                                # Buffer is full - drop oldest frame and add new one
+                                try:
+                                    self.audio_buffer.get_nowait()
+                                    self.audio_buffer.put_nowait(data)
+                                except:
+                                    pass  # Skip this frame if buffer operations fail
                 
             except Exception as e:
                 if self.connected:
