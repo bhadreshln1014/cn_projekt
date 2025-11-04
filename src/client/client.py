@@ -201,21 +201,19 @@ class VideoConferenceClient(QMainWindow):
         # Make notification clickable (except close button)
         notification.mousePressEvent = lambda event: self.notification_clicked(notification)
         
-        # Position notification at bottom right, above control buttons (stack upwards)
-        notification_height = 90
-        margin_bottom = 200  # Space above control buttons (increased to clear video area)
-        y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
-        notification.move(self.width() - 340, y_offset)
-        
         # Ensure notification is properly displayed on Windows
         notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         notification.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        
+        # Add to active notifications first
+        self.active_notifications.append(notification)
+        
+        # Position notification at bottom right (stack upwards from bottom)
+        self.reposition_notifications()
+        
         notification.show()
         notification.raise_()  # Bring to front
         notification.activateWindow()  # Ensure it's active on Windows
-        
-        # Add to active notifications
-        self.active_notifications.append(notification)
         
         # Auto-hide after 5 seconds
         QTimer.singleShot(5000, lambda: self.hide_notification(notification))
@@ -298,21 +296,19 @@ class VideoConferenceClient(QMainWindow):
         close_btn.clicked.connect(lambda: self.hide_notification(notification))
         main_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
         
-        # Position notification at bottom right, above control buttons (stack upwards)
-        notification_height = 90
-        margin_bottom = 200  # Space above control buttons (increased to clear video area)
-        y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
-        notification.move(self.width() - 340, y_offset)
-        
         # Ensure notification is properly displayed on Windows
         notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         notification.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        
+        # Add to active notifications first
+        self.active_notifications.append(notification)
+        
+        # Position notification at bottom right (stack upwards from bottom)
+        self.reposition_notifications()
+        
         notification.show()
         notification.raise_()  # Bring to front
         notification.activateWindow()  # Ensure it's active on Windows
-        
-        # Add to active notifications
-        self.active_notifications.append(notification)
         
         # Auto-hide after 4 seconds
         QTimer.singleShot(4000, lambda: self.hide_notification(notification))
@@ -395,21 +391,19 @@ class VideoConferenceClient(QMainWindow):
         close_btn.clicked.connect(lambda: self.hide_notification(notification))
         main_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
         
-        # Position notification at bottom right, above control buttons (stack upwards)
-        notification_height = 90
-        margin_bottom = 200  # Space above control buttons (increased to clear video area)
-        y_offset = self.height() - margin_bottom - (len(self.active_notifications) + 1) * (notification_height + 10)
-        notification.move(self.width() - 340, y_offset)
-        
         # Ensure notification is properly displayed on Windows
         notification.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         notification.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        
+        # Add to active notifications first
+        self.active_notifications.append(notification)
+        
+        # Position notification at bottom right (stack upwards from bottom)
+        self.reposition_notifications()
+        
         notification.show()
         notification.raise_()  # Bring to front
         notification.activateWindow()  # Ensure it's active on Windows
-        
-        # Add to active notifications
-        self.active_notifications.append(notification)
         
         # Auto-hide after 4 seconds
         QTimer.singleShot(4000, lambda: self.hide_notification(notification))
@@ -426,12 +420,22 @@ class VideoConferenceClient(QMainWindow):
             self.active_notifications.remove(notification)
             notification.deleteLater()
             
-            # Reposition remaining notifications (stack upwards from bottom)
-            notification_height = 90
-            margin_bottom = 200  # Space above control buttons (increased to clear video area)
-            for idx, notif in enumerate(self.active_notifications):
-                y_offset = self.height() - margin_bottom - (idx + 1) * (notification_height + 10)
-                notif.move(self.width() - 340, y_offset)
+            # Reposition remaining notifications
+            self.reposition_notifications()
+    
+    def reposition_notifications(self):
+        """Reposition all active notifications to bottom-right corner"""
+        notification_height = 90
+        notification_gap = 10
+        margin_bottom = 200  # Space above control buttons
+        margin_right = 10  # Small margin from right edge
+        
+        for idx, notif in enumerate(self.active_notifications):
+            # Calculate position from bottom
+            y_pos = self.height() - margin_bottom - ((idx + 1) * (notification_height + notification_gap))
+            x_pos = self.width() - 340 - margin_right
+            notif.move(x_pos, y_pos)
+            notif.raise_()  # Ensure it stays on top
         
     def connect_to_server(self, server_ip, username):
         """Connect to the server"""
