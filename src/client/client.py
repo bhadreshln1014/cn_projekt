@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QFrame, QDialog, QListWidget, QProgressBar, QMessageBox,
     QFileDialog, QScrollArea, QGroupBox, QListWidgetItem, QSizePolicy, QMenu
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread, QSize
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread, QSize, QMetaObject, Q_ARG
 from PyQt6.QtGui import QPixmap, QImage, QFont, QColor, QPalette, QIcon, QAction
 
 # Try to import qtawesome for Material Design icons
@@ -3392,7 +3392,6 @@ class VideoConferenceClient(QMainWindow):
                     if not success:
                         print(f"[DEBUG] Screen sharing denied - showing warning dialog")
                         # Another user is presenting - revert button and show message
-                        QTimer.singleShot(0, lambda: self.share_screen_btn.setChecked(False))
                         
                         # Get presenter name if available
                         presenter_name = "Another user"
@@ -3402,39 +3401,28 @@ class VideoConferenceClient(QMainWindow):
                         
                         print(f"[DEBUG] Presenter name: {presenter_name}")
                         
-                        # Show warning message in main thread
-                        def show_warning():
-                            print(f"[DEBUG] Creating warning dialog...")
-                            msg = QMessageBox(self)
-                            msg.setIcon(QMessageBox.Icon.Warning)
-                            msg.setWindowTitle("Screen Sharing Unavailable")
-                            msg.setText(f"{presenter_name} is currently presenting.")
-                            msg.setInformativeText("Only one user can share their screen at a time.\nPlease wait until they finish.")
-                            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-                            msg.setDefaultButton(QMessageBox.StandardButton.Ok)
-                            msg.setWindowFlags(msg.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-                            print(f"[DEBUG] Showing warning dialog...")
-                            msg.exec()
-                            print(f"[DEBUG] Warning dialog closed")
+                        # Must update UI in main thread
+                        from PyQt6.QtCore import QMetaObject, Q_ARG
+                        QMetaObject.invokeMethod(
+                            self,
+                            "show_screen_share_warning",
+                            Qt.ConnectionType.QueuedConnection,
+                            Q_ARG(str, presenter_name)
+                        )
                         
-                        QTimer.singleShot(0, show_warning)
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error in start_in_background: {e}")
                     import traceback
                     traceback.print_exc()
-                    QTimer.singleShot(0, lambda: self.share_screen_btn.setChecked(False))
                     
-                    def show_error():
-                        msg = QMessageBox(self)
-                        msg.setIcon(QMessageBox.Icon.Critical)
-                        msg.setWindowTitle("Error")
-                        msg.setText(f"Failed to start screen sharing: {e}")
-                        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-                        msg.setDefaultButton(QMessageBox.StandardButton.Ok)
-                        msg.setWindowFlags(msg.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-                        msg.exec()
-                    
-                    QTimer.singleShot(0, show_error)
+                    # Show error dialog
+                    from PyQt6.QtCore import QMetaObject, Q_ARG
+                    QMetaObject.invokeMethod(
+                        self,
+                        "show_screen_share_error",
+                        Qt.ConnectionType.QueuedConnection,
+                        Q_ARG(str, str(e))
+                    )
             
             threading.Thread(target=start_in_background, daemon=True).start()
             self.is_presenting = True  # Optimistically set
@@ -3448,6 +3436,58 @@ class VideoConferenceClient(QMainWindow):
             
             threading.Thread(target=stop_in_background, daemon=True).start()
             self.is_presenting = False
+    
+    def show_screen_share_warning(self, presenter_name):
+        """Show warning dialog when screen sharing is denied - must run in main thread"""
+        print(f"[DEBUG] show_screen_share_warning called with presenter: {presenter_name}")
+        
+        # Revert the screen share button
+        self.share_screen_btn.setChecked(False)
+        self.is_presenting = False
+        
+        # Create and show warning dialog
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Screen Sharing Unavailable")
+        msg.setText(f"{presenter_name} is currently presenting.")
+        msg.setInformativeText("Only one user can share their screen at a time.\nPlease wait until they finish.")
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.setDefaultButton(QMessageBox.StandardButton.Ok)
+        
+        # Make sure it appears on top
+        msg.setWindowModality(Qt.WindowModality.ApplicationModal)
+        msg.raise_()
+        msg.activateWindow()
+        
+        print(f"[DEBUG] Executing warning dialog...")
+        result = msg.exec()
+        print(f"[DEBUG] Warning dialog closed with result: {result}")
+    
+    def show_screen_share_error(self, error_message):
+        """Show error dialog when screen sharing fails - must run in main thread"""
+        print(f"[DEBUG] show_screen_share_error called with error: {error_message}")
+        
+        # Revert the screen share button
+        self.share_screen_btn.setChecked(False)
+        self.is_presenting = False
+        
+        # Create and show error dialog
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Critical)
+        msg.setWindowTitle("Screen Sharing Error")
+        msg.setText("Failed to start screen sharing")
+        msg.setInformativeText(str(error_message))
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.setDefaultButton(QMessageBox.StandardButton.Ok)
+        
+        # Make sure it appears on top
+        msg.setWindowModality(Qt.WindowModality.ApplicationModal)
+        msg.raise_()
+        msg.activateWindow()
+        
+        print(f"[DEBUG] Executing error dialog...")
+        result = msg.exec()
+        print(f"[DEBUG] Error dialog closed with result: {result}")
     
     def show_layout_menu(self):
         """Show popup menu with layout options"""
