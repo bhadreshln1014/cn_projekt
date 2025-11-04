@@ -555,14 +555,15 @@ class VideoConferenceClient(QMainWindow):
     def start_audio_capture(self):
         """Start capturing audio from microphone"""
         try:
-            # Open audio input stream
+            # Open audio input stream with platform-appropriate settings
             self.audio_stream_input = self.audio.open(
                 format=AUDIO_FORMAT,
                 channels=AUDIO_CHANNELS,
                 rate=AUDIO_RATE,
                 input=True,
                 input_device_index=self.selected_input_device,
-                frames_per_buffer=AUDIO_CHUNK
+                frames_per_buffer=AUDIO_CHUNK,
+                stream_callback=None  # Use blocking mode for better compatibility
             )
             
             self.audio_capturing = True
@@ -604,6 +605,9 @@ class VideoConferenceClient(QMainWindow):
     
     def capture_and_send_audio(self):
         """Capture audio and send to server"""
+        send_interval = AUDIO_CHUNK / AUDIO_RATE  # Natural interval based on chunk size
+        last_send_time = time.time()
+        
         while self.audio_capturing and self.connected:
             try:
                 # Read audio data (non-blocking with overflow handling)
@@ -615,9 +619,16 @@ class VideoConferenceClient(QMainWindow):
                 # Send via UDP
                 self.audio_udp_socket.sendto(packet, (self.server_address, SERVER_AUDIO_PORT))
                 
-                # Small delay to prevent flooding (AUDIO_CHUNK/AUDIO_RATE = natural timing)
-                # This helps sync with video and reduces network congestion
-                time.sleep(AUDIO_CHUNK / AUDIO_RATE * 0.95)  # 95% to account for processing time
+                # Precise timing control to maintain consistent send rate
+                # This is critical for smooth playback on the receiving end
+                current_time = time.time()
+                elapsed = current_time - last_send_time
+                sleep_time = max(0, send_interval - elapsed)
+                
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                
+                last_send_time = time.time()
                 
             except Exception as e:
                 if self.audio_capturing:
@@ -634,14 +645,15 @@ class VideoConferenceClient(QMainWindow):
                 except:
                     break
             
-            # Open audio output stream
+            # Open audio output stream with larger buffer for Linux compatibility
             self.audio_stream_output = self.audio.open(
                 format=AUDIO_FORMAT,
                 channels=AUDIO_CHANNELS,
                 rate=AUDIO_RATE,
                 output=True,
                 output_device_index=self.selected_output_device,
-                frames_per_buffer=AUDIO_CHUNK
+                frames_per_buffer=AUDIO_CHUNK * 2,  # Larger buffer for smoother playback on Linux
+                stream_callback=None  # Blocking mode for better cross-platform compatibility
             )
             
             self.audio_playing = True
@@ -661,15 +673,18 @@ class VideoConferenceClient(QMainWindow):
         """Worker thread that plays audio from the buffer"""
         print(f"[{self.get_timestamp()}] Audio playback worker started")
         
-        # Pre-buffer some frames before starting playback (reduces initial jitter)
-        prebuffer_count = 3
+        # Pre-buffer more frames on startup for smoother playback (especially important for Linux)
+        prebuffer_count = 5  # Increased from 3 to 5 for better stability
         while self.audio_playing and self.audio_buffer.qsize() < prebuffer_count:
             time.sleep(0.01)
+        
+        consecutive_empty = 0  # Track consecutive empty buffer reads
         
         while self.audio_playing:
             try:
                 # Get audio data from buffer with timeout
-                audio_data = self.audio_buffer.get(timeout=0.1)
+                audio_data = self.audio_buffer.get(timeout=0.05)  # Slightly shorter timeout
+                consecutive_empty = 0  # Reset counter on successful read
                 
                 # Play the audio
                 if self.audio_stream_output is not None:
@@ -680,13 +695,19 @@ class VideoConferenceClient(QMainWindow):
                             print(f"[{self.get_timestamp()}] Audio write error: {write_error}")
                         
             except queue.Empty:
-                # No audio data available - write silence to prevent gaps
-                silence = b'\x00' * (AUDIO_CHUNK * AUDIO_FORMAT_BYTES)
-                if self.audio_stream_output is not None and self.audio_playing:
-                    try:
-                        self.audio_stream_output.write(silence)
-                    except:
-                        pass
+                consecutive_empty += 1
+                # Only write silence if buffer has been empty for a bit (prevents brief gaps)
+                if consecutive_empty > 2:
+                    # No audio data available - write silence to prevent gaps
+                    silence = b'\x00' * (AUDIO_CHUNK * AUDIO_FORMAT_BYTES)
+                    if self.audio_stream_output is not None and self.audio_playing:
+                        try:
+                            self.audio_stream_output.write(silence)
+                        except:
+                            pass
+                else:
+                    # Just wait a bit if buffer temporarily empty
+                    time.sleep(0.005)
             except Exception as e:
                 if self.audio_playing:
                     print(f"[{self.get_timestamp()}] Audio playback error: {e}")
