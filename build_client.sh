@@ -7,7 +7,7 @@ pip install pyinstaller
 
 echo ""
 echo "Building executable..."
-pyinstaller build_client.spec --clean
+python -m PyInstaller build_client.spec --clean
 
 echo ""
 echo "Build complete!"
