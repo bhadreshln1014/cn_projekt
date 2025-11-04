@@ -44,7 +44,7 @@ from common.config import *
 
 class VideoConferenceClient(QMainWindow):
     # Signals for thread-safe GUI updates
-    chat_message_received = pyqtSignal(str, str, str)  # username, timestamp, message
+    chat_message_received = pyqtSignal(int, str, str, str)  # sender_id, username, timestamp, message
     chat_debug_signal = pyqtSignal(str)  # debug message to display
     notification_signal = pyqtSignal(str, str)  # sender, message - for thread-safe notifications
     user_join_signal = pyqtSignal(str)  # username - for user join notifications
@@ -1219,7 +1219,7 @@ class VideoConferenceClient(QMainWindow):
                                 chat_message = rest[9:] if len(rest) > 9 else ""  # Skip "HH:MM:SS:"
                                 
                                 # Display in chat window (done in main thread via signal)
-                                self.chat_message_received.emit(sender_username, timestamp, chat_message)
+                                self.chat_message_received.emit(sender_id, sender_username, timestamp, chat_message)
                         except Exception as e:
                             self.chat_debug_signal.emit(f"Error handling chat: {str(e)}")
                     
@@ -1247,7 +1247,7 @@ class VideoConferenceClient(QMainWindow):
                                             recipient_names.append("You")
                                 
                                 # Display in chat window - call directly since we're already in a QTimer callback
-                                self.display_chat_message(sender_username, timestamp, chat_message, is_private=True, recipient_names=recipient_names)
+                                self.display_chat_message(sender_id, sender_username, timestamp, chat_message, is_private=True, recipient_names=recipient_names)
                         except Exception as e:
                             print(f"[{self.get_timestamp()}] Error handling private chat message: {e}")
                     
@@ -1277,7 +1277,7 @@ class VideoConferenceClient(QMainWindow):
                                 size_mb = filesize / (1024 * 1024)
                                 notification = f"📁 {uploader_name} shared a file: {filename} ({size_mb:.2f} MB)"
                                 QTimer.singleShot(0, lambda: self.display_chat_message(
-                                    "System", self.get_timestamp(), notification, is_system=True
+                                    -1, "System", self.get_timestamp(), notification, is_system=True
                                 ))
                         except Exception as e:
                             print(f"[{self.get_timestamp()}] Error handling file offer: {e}")
@@ -1298,7 +1298,7 @@ class VideoConferenceClient(QMainWindow):
                                 # Show notification
                                 notification = f"🗑️ File deleted: {filename}"
                                 QTimer.singleShot(0, lambda: self.display_chat_message(
-                                    "System", self.get_timestamp(), notification, is_system=True
+                                    -1, "System", self.get_timestamp(), notification, is_system=True
                                 ))
                         except Exception as e:
                             print(f"[{self.get_timestamp()}] Error handling file deletion: {e}")
@@ -2796,7 +2796,7 @@ class VideoConferenceClient(QMainWindow):
             print(f"[{self.get_timestamp()}] Error sending chat message: {e}")
             QMessageBox.critical(self, "Chat Error", f"Failed to send message: {e}")
     
-    def display_chat_message(self, username, timestamp, message, is_system=False, is_private=False, recipient_names=None):
+    def display_chat_message(self, sender_id, username, timestamp, message, is_system=False, is_private=False, recipient_names=None):
         """Display a chat message in the chat window"""
         if is_system:
             # System message (e.g., user joined/left)
@@ -2816,15 +2816,15 @@ class VideoConferenceClient(QMainWindow):
         scrollbar.setValue(scrollbar.maximum())
         
         # Debug: Always log chat message details
-        print(f"[DEBUG] Chat message received: username='{username}', self.username='{self.username}', chat_panel_visible={self.chat_panel_visible}, is_system={is_system}")
+        print(f"[DEBUG] Chat message received: sender_id={sender_id}, self.client_id={self.client_id}, username='{username}', self.username='{self.username}', chat_panel_visible={self.chat_panel_visible}, is_system={is_system}")
         
         # Show notification if chat panel is not visible and message is not from self
-        if not self.chat_panel_visible and username != self.username:
-            print(f"[DEBUG] Emitting notification: chat_panel_visible={self.chat_panel_visible}, username={username}, self.username={self.username}")
+        if not self.chat_panel_visible and sender_id != self.client_id:
+            print(f"[DEBUG] Emitting notification: sender_id={sender_id}, self.client_id={self.client_id}")
             notification_type = "Private" if is_private else "Message"
             self.notification_signal.emit(username, message)
         else:
-            print(f"[DEBUG] NOT emitting notification - chat_panel_visible={self.chat_panel_visible}, username==self.username: {username == self.username}")
+            print(f"[DEBUG] NOT emitting notification - chat_panel_visible={self.chat_panel_visible}, sender_id==self.client_id: {sender_id == self.client_id}")
     
     def show_recipient_selector(self):
         """Show dialog to select multiple recipients"""
