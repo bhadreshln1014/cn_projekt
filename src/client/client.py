@@ -2815,11 +2815,16 @@ class VideoConferenceClient(QMainWindow):
         scrollbar = self.chat_display.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
         
+        # Debug: Always log chat message details
+        print(f"[DEBUG] Chat message received: username='{username}', self.username='{self.username}', chat_panel_visible={self.chat_panel_visible}, is_system={is_system}")
+        
         # Show notification if chat panel is not visible and message is not from self
         if not self.chat_panel_visible and username != self.username:
             print(f"[DEBUG] Emitting notification: chat_panel_visible={self.chat_panel_visible}, username={username}, self.username={self.username}")
             notification_type = "Private" if is_private else "Message"
             self.notification_signal.emit(username, message)
+        else:
+            print(f"[DEBUG] NOT emitting notification - chat_panel_visible={self.chat_panel_visible}, username==self.username: {username == self.username}")
     
     def show_recipient_selector(self):
         """Show dialog to select multiple recipients"""
