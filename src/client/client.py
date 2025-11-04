@@ -3397,15 +3397,32 @@ class VideoConferenceClient(QMainWindow):
                             with self.users_lock:
                                 presenter_name = self.users.get(self.current_presenter_id, f"User {self.current_presenter_id}")
                         
-                        QTimer.singleShot(0, lambda: QMessageBox.warning(
-                            self, 
-                            "Screen Sharing Unavailable", 
-                            f"{presenter_name} is currently presenting.\n\nOnly one user can share their screen at a time. Please wait until they finish."
-                        ))
+                        # Show warning message in main thread
+                        def show_warning():
+                            msg = QMessageBox(self)
+                            msg.setIcon(QMessageBox.Icon.Warning)
+                            msg.setWindowTitle("Screen Sharing Unavailable")
+                            msg.setText(f"{presenter_name} is currently presenting.")
+                            msg.setInformativeText("Only one user can share their screen at a time.\nPlease wait until they finish.")
+                            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+                            msg.setWindowFlags(msg.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+                            msg.exec()
+                        
+                        QTimer.singleShot(0, show_warning)
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error in start_in_background: {e}")
                     QTimer.singleShot(0, lambda: self.share_screen_btn.setChecked(False))
-                    QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Error", f"Failed to start screen sharing: {e}"))
+                    
+                    def show_error():
+                        msg = QMessageBox(self)
+                        msg.setIcon(QMessageBox.Icon.Critical)
+                        msg.setWindowTitle("Error")
+                        msg.setText(f"Failed to start screen sharing: {e}")
+                        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+                        msg.setWindowFlags(msg.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+                        msg.exec()
+                    
+                    QTimer.singleShot(0, show_error)
             
             threading.Thread(target=start_in_background, daemon=True).start()
             self.is_presenting = True  # Optimistically set
