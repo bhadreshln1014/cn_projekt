@@ -8,6 +8,8 @@ import threading
 import time
 import pickle
 import struct
+from collections import deque
+import queue
 import cv2
 import numpy as np
 import pyaudio
@@ -71,6 +73,8 @@ class VideoConferenceClient(QMainWindow):
         self.audio_playing = False
         self.selected_input_device = None  # Will store device index
         self.selected_output_device = None  # Will store device index
+        self.audio_buffer = queue.Queue(maxsize=20)  # Jitter buffer for smooth playback
+        self.audio_playback_thread = None
         
         # Video streams: {client_id: frame_data}
         self.video_streams = {}
@@ -623,6 +627,13 @@ class VideoConferenceClient(QMainWindow):
     def start_audio_playback(self):
         """Start audio playback"""
         try:
+            # Clear any old audio data from buffer
+            while not self.audio_buffer.empty():
+                try:
+                    self.audio_buffer.get_nowait()
+                except:
+                    break
+            
             # Open audio output stream
             self.audio_stream_output = self.audio.open(
                 format=AUDIO_FORMAT,
@@ -634,6 +645,11 @@ class VideoConferenceClient(QMainWindow):
             )
             
             self.audio_playing = True
+            
+            # Start playback thread
+            self.audio_playback_thread = threading.Thread(target=self._audio_playback_worker, daemon=True)
+            self.audio_playback_thread.start()
+            
             print(f"[{self.get_timestamp()}] Audio playback started")
             return True
             
@@ -641,12 +657,58 @@ class VideoConferenceClient(QMainWindow):
             print(f"[{self.get_timestamp()}] Error starting audio playback: {e}")
             return False
     
+    def _audio_playback_worker(self):
+        """Worker thread that plays audio from the buffer"""
+        print(f"[{self.get_timestamp()}] Audio playback worker started")
+        
+        # Pre-buffer some frames before starting playback (reduces initial jitter)
+        prebuffer_count = 3
+        while self.audio_playing and self.audio_buffer.qsize() < prebuffer_count:
+            time.sleep(0.01)
+        
+        while self.audio_playing:
+            try:
+                # Get audio data from buffer with timeout
+                audio_data = self.audio_buffer.get(timeout=0.1)
+                
+                # Play the audio
+                if self.audio_stream_output is not None:
+                    try:
+                        self.audio_stream_output.write(audio_data)
+                    except Exception as write_error:
+                        if self.audio_playing:
+                            print(f"[{self.get_timestamp()}] Audio write error: {write_error}")
+                        
+            except queue.Empty:
+                # No audio data available - write silence to prevent gaps
+                silence = b'\x00' * (AUDIO_CHUNK * AUDIO_FORMAT_BYTES)
+                if self.audio_stream_output is not None and self.audio_playing:
+                    try:
+                        self.audio_stream_output.write(silence)
+                    except:
+                        pass
+            except Exception as e:
+                if self.audio_playing:
+                    print(f"[{self.get_timestamp()}] Audio playback error: {e}")
+                time.sleep(0.01)
+        
+        print(f"[{self.get_timestamp()}] Audio playback worker stopped")
+    
     def stop_audio_playback(self):
         """Stop audio playback"""
         self.audio_playing = False
         
-        # Give the playback thread time to stop writing
-        time.sleep(0.15)
+        # Wait for playback thread to finish
+        if self.audio_playback_thread is not None:
+            self.audio_playback_thread.join(timeout=1.0)
+            self.audio_playback_thread = None
+        
+        # Clear the buffer
+        while not self.audio_buffer.empty():
+            try:
+                self.audio_buffer.get_nowait()
+            except:
+                break
         
         # Close audio output stream
         if self.audio_stream_output is not None:
@@ -666,7 +728,7 @@ class VideoConferenceClient(QMainWindow):
         print(f"[{self.get_timestamp()}] Audio playback stopped")
     
     def receive_audio_stream(self):
-        """Receive mixed audio stream from server and play it"""
+        """Receive mixed audio stream from server and add to playback buffer"""
         print(f"[{self.get_timestamp()}] Audio receiver started")
         
         while self.connected:
@@ -674,19 +736,22 @@ class VideoConferenceClient(QMainWindow):
                 # Receive audio packet
                 data, addr = self.audio_udp_socket.recvfrom(MAX_PACKET_SIZE)
                 
-                # Play audio if playback is enabled
-                if self.audio_playing and self.audio_stream_output is not None:
+                # Add to buffer if playback is enabled
+                if self.audio_playing:
                     try:
-                        self.audio_stream_output.write(data)
-                    except Exception as write_error:
-                        # Stream might be closing, skip this chunk
-                        if self.audio_playing:
-                            print(f"[{self.get_timestamp()}] Audio write error: {write_error}")
-                        time.sleep(0.01)
+                        # Try to add to buffer without blocking
+                        self.audio_buffer.put_nowait(data)
+                    except queue.Full:
+                        # Buffer is full - drop oldest frame and add new one
+                        try:
+                            self.audio_buffer.get_nowait()
+                            self.audio_buffer.put_nowait(data)
+                        except:
+                            pass  # Skip this frame if buffer operations fail
                 
             except Exception as e:
                 if self.connected:
-                    print(f"[{self.get_timestamp()}] Error receiving/playing audio: {e}")
+                    print(f"[{self.get_timestamp()}] Error receiving audio: {e}")
                 time.sleep(0.01)
     
     def start_screen_sharing(self):

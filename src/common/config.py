@@ -32,10 +32,11 @@ VIDEO_QUALITY = 60  # JPEG compression quality (0-100)
 
 # Audio Configuration
 AUDIO_RATE = 44100        # Sample rate (Hz)
-AUDIO_CHUNK = 2048        # Samples per chunk (increased for better sync and less choppy audio)
+AUDIO_CHUNK = 1024        # Samples per chunk (smaller chunks = lower latency ~23ms)
 AUDIO_CHANNELS = 1        # Mono audio
 AUDIO_FORMAT = 8          # pyaudio.paInt16 (16-bit audio)
 AUDIO_FORMAT_BYTES = 2    # Bytes per sample
+AUDIO_BUFFER_SIZE = 10    # Number of chunks to buffer for jitter compensation
 
 # Screen Sharing Configuration
 SCREEN_WIDTH = 960        # Screen sharing resolution width (reduced for UDP packet size)
