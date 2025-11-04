@@ -3286,6 +3286,10 @@ class VideoConferenceClient(QMainWindow):
         if not save_path:
             return
         
+        # Normalize path for the current platform
+        save_path = os.path.normpath(save_path)
+        print(f"[{self.get_timestamp()}] Saving file to: {save_path}")
+        
         # Create progress dialog
         progress_dialog = QDialog(self)
         progress_dialog.setWindowTitle("Downloading File")
@@ -3340,20 +3344,32 @@ class VideoConferenceClient(QMainWindow):
                             QTimer.singleShot(0, lambda p=percent: status_label.setText(f"{p:.1f}%"))
                     
                     file_sock.close()
+                    print(f"[{self.get_timestamp()}] Download complete: received {received}/{filesize} bytes")
                     
                     if received == filesize:
-                        QTimer.singleShot(0, progress_dialog.close)
-                        QTimer.singleShot(0, lambda: QMessageBox.information(self, "Success", f"File '{filename}' downloaded successfully!"))
+                        # Verify file was written successfully (especially important on Linux)
+                        if os.path.exists(save_path) and os.path.getsize(save_path) == filesize:
+                            print(f"[{self.get_timestamp()}] File verified successfully")
+                            QTimer.singleShot(0, progress_dialog.close)
+                            QTimer.singleShot(0, lambda: QMessageBox.information(self, "Success", f"File '{filename}' downloaded successfully!"))
+                        else:
+                            print(f"[{self.get_timestamp()}] File verification failed - exists: {os.path.exists(save_path)}, size: {os.path.getsize(save_path) if os.path.exists(save_path) else 'N/A'}")
+                            QTimer.singleShot(0, progress_dialog.close)
+                            QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Failed", "File verification failed after download."))
                     else:
+                        print(f"[{self.get_timestamp()}] Download incomplete")
                         QTimer.singleShot(0, progress_dialog.close)
                         QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Failed", "File download incomplete."))
                 else:
                     file_sock.close()
+                    print(f"[{self.get_timestamp()}] Server response not FILE: {response}")
                     QTimer.singleShot(0, progress_dialog.close)
                     QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Failed", "File not found on server."))
                     
             except Exception as e:
                 print(f"[{self.get_timestamp()}] Error downloading file: {e}")
+                import traceback
+                traceback.print_exc()
                 QTimer.singleShot(0, progress_dialog.close)
                 QTimer.singleShot(0, lambda: QMessageBox.critical(self, "Download Error", f"Failed to download file: {e}"))
         
