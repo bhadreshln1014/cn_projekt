@@ -438,8 +438,9 @@ class VideoConferenceServer:
         
         # Format message for private chat
         # PRIVATE_CHAT:sender_id:sender_username:timestamp:recipient_ids:message
+        # Using | to separate fields since timestamp contains colons
         recipient_ids_str = ",".join(map(str, recipient_ids))
-        private_msg = f"PRIVATE_CHAT:{sender_id}:{sender_username}:{timestamp}:{recipient_ids_str}:{message}\n"
+        private_msg = f"PRIVATE_CHAT:{sender_id}|{sender_username}|{timestamp}|{recipient_ids_str}|{message}\n"
         
         # Send to sender (so they see their own message)
         with self.clients_lock:

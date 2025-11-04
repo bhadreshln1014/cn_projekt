@@ -794,19 +794,21 @@ class VideoConferenceClient(QMainWindow):
                             self.chat_debug_signal.emit(f"Error handling chat: {str(e)}")
                     
                     elif message.startswith("PRIVATE_CHAT:"):
-                        # Received private chat message: PRIVATE_CHAT:sender_id:sender_username:timestamp:recipient_ids:message
+                        # Received private chat message: PRIVATE_CHAT:sender_id|sender_username|timestamp|recipient_ids|message
                         try:
                             print(f"[{self.get_timestamp()}] DEBUG: Received PRIVATE_CHAT message: {message[:100]}")
-                            parts = message.split(":", 5)
+                            # Remove "PRIVATE_CHAT:" prefix and split by pipe
+                            content = message[13:]  # Remove "PRIVATE_CHAT:"
+                            parts = content.split("|", 4)  # Split into max 5 parts
                             print(f"[{self.get_timestamp()}] DEBUG: Split into {len(parts)} parts")
-                            if len(parts) >= 6:
-                                sender_id = int(parts[1])
-                                sender_username = parts[2]
-                                timestamp = parts[3]
-                                recipient_ids_str = parts[4]
-                                chat_message = parts[5]
+                            if len(parts) >= 5:
+                                sender_id = int(parts[0])
+                                sender_username = parts[1]
+                                timestamp = parts[2]
+                                recipient_ids_str = parts[3]
+                                chat_message = parts[4]
                                 
-                                print(f"[{self.get_timestamp()}] DEBUG: sender={sender_username}, recipients={recipient_ids_str}, message={chat_message[:50]}")
+                                print(f"[{self.get_timestamp()}] DEBUG: sender={sender_username}, recipients={recipient_ids_str}, message={chat_message[:50] if len(chat_message) > 50 else chat_message}")
                                 
                                 # Get recipient names
                                 recipient_ids = [int(rid) for rid in recipient_ids_str.split(",")]
