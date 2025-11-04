@@ -1149,22 +1149,25 @@ class VideoConferenceClient(QMainWindow):
                             users = pickle.loads(bytes.fromhex(user_data))
                             with self.users_lock:
                                 old_user_count = len(self.users)
-                                old_users = set(self.users.values())  # Store old usernames
+                                old_user_ids = set(self.users.keys())  # Store old client IDs
+                                old_users_dict = self.users.copy()  # Save old users dict for left user names
                                 self.users = {u['id']: u['username'] for u in users}
                                 new_user_count = len(self.users)
-                                new_users = set(self.users.values())  # Get new usernames
+                                new_user_ids = set(self.users.keys())  # Get new client IDs
                                 
                                 # Detect who joined (only after initial user list is received)
                                 if self.initial_user_list_received:
-                                    joined_users = new_users - old_users
-                                    for username in joined_users:
-                                        if username != self.username:  # Don't notify for yourself
+                                    joined_user_ids = new_user_ids - old_user_ids
+                                    for user_id in joined_user_ids:
+                                        if user_id != self.client_id:  # Don't notify for yourself
+                                            username = self.users.get(user_id, "Unknown")
                                             self.user_join_signal.emit(username)
                                     
                                     # Detect who left
-                                    left_users = old_users - new_users
-                                    for username in left_users:
-                                        if username != self.username:  # Don't notify for yourself
+                                    left_user_ids = old_user_ids - new_user_ids
+                                    for user_id in left_user_ids:
+                                        if user_id != self.client_id:  # Don't notify for yourself
+                                            username = old_users_dict.get(user_id, "Unknown")
                                             self.user_left_signal.emit(username)
                                 else:
                                     # Mark that we've received the initial user list
