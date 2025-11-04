@@ -120,6 +120,8 @@ class VideoConferenceClient(QMainWindow):
         
     def show_chat_notification(self, sender, message, notification_type="Message"):
         """Show a notification popup for incoming chat messages"""
+        print(f"[DEBUG] show_chat_notification called: sender={sender}, message={message[:30]}...")
+        
         # Create notification widget
         notification = QFrame(self)
         notification.setFixedSize(340, 90)
@@ -218,6 +220,8 @@ class VideoConferenceClient(QMainWindow):
     
     def show_user_join_notification(self, username):
         """Show a notification when a user joins"""
+        print(f"[DEBUG] show_user_join_notification called: username={username}")
+        
         # Create notification widget
         notification = QFrame(self)
         notification.setFixedSize(340, 90)
@@ -311,6 +315,8 @@ class VideoConferenceClient(QMainWindow):
     
     def show_user_left_notification(self, username):
         """Show a notification when a user leaves"""
+        print(f"[DEBUG] show_user_left_notification called: username={username}")
+        
         # Create notification widget
         notification = QFrame(self)
         notification.setFixedSize(340, 90)
@@ -2811,6 +2817,7 @@ class VideoConferenceClient(QMainWindow):
         
         # Show notification if chat panel is not visible and message is not from self
         if not self.chat_panel_visible and username != self.username:
+            print(f"[DEBUG] Emitting notification: chat_panel_visible={self.chat_panel_visible}, username={username}, self.username={self.username}")
             notification_type = "Private" if is_private else "Message"
             self.notification_signal.emit(username, message)
     
