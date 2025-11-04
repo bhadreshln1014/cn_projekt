@@ -537,10 +537,6 @@ class VideoConferenceClient(QMainWindow):
                 self.screen_sharing_active = True
                 self.current_presenter_id = self.client_id  # Mark self as presenter
                 
-                print(f"[{self.get_timestamp()}] DEBUG: Screen sharing granted")
-                print(f"[{self.get_timestamp()}] DEBUG: current_presenter_id set to {self.current_presenter_id}")
-                print(f"[{self.get_timestamp()}] DEBUG: layout_mode={self.layout_mode}, current_layout_mode={self.current_layout_mode}")
-                
                 # Start screen capture thread (sends via UDP)
                 screen_thread = threading.Thread(target=self.capture_and_send_screen, daemon=True)
                 screen_thread.start()
@@ -2264,7 +2260,6 @@ class VideoConferenceClient(QMainWindow):
     def toggle_self_video(self):
         """Toggle video capture on/off"""
         self.show_self_video = self.camera_btn.isChecked()
-        print(f"[{self.get_timestamp()}] DEBUG: Toggling video - camera_checked={self.camera_btn.isChecked()}, show_self_video={self.show_self_video}")
         
         if self.show_self_video:
             # Turn video ON - start capturing and transmitting
@@ -2274,12 +2269,8 @@ class VideoConferenceClient(QMainWindow):
             self.stop_video_capture()
         
         # Refresh sidebar if in spotlight mode
-        print(f"[{self.get_timestamp()}] DEBUG: Current layout mode: {self.current_layout_mode}")
         if self.current_layout_mode == "spotlight":
-            print(f"[{self.get_timestamp()}] DEBUG: Refreshing spotlight layout after camera toggle")
             self.update_spotlight_layout()
-        else:
-            print(f"[{self.get_timestamp()}] DEBUG: Not in spotlight mode, skipping sidebar refresh")
     
     def toggle_microphone(self):
         """Toggle microphone on/off"""

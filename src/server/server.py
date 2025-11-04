@@ -442,21 +442,30 @@ class VideoConferenceServer:
         recipient_ids_str = ",".join(map(str, recipient_ids))
         private_msg = f"PRIVATE_CHAT:{sender_id}|{sender_username}|{timestamp}|{recipient_ids_str}|{message}\n"
         
+        print(f"[{self.get_timestamp()}] DEBUG: Formatted private message: {private_msg.strip()}")
+        print(f"[{self.get_timestamp()}] DEBUG: Sending to sender {sender_id} and recipients {recipient_ids}")
+        
         # Send to sender (so they see their own message)
         with self.clients_lock:
             if sender_id in self.clients:
                 try:
                     self.clients[sender_id]['tcp_conn'].send(private_msg.encode('utf-8'))
+                    print(f"[{self.get_timestamp()}] DEBUG: Sent to sender {sender_id}")
                 except Exception as e:
                     print(f"[{self.get_timestamp()}] Error sending private chat to sender {sender_id}: {e}")
+            else:
+                print(f"[{self.get_timestamp()}] DEBUG: Sender {sender_id} not in clients dict")
             
             # Send to each recipient
             for recipient_id in recipient_ids:
                 if recipient_id in self.clients:
                     try:
                         self.clients[recipient_id]['tcp_conn'].send(private_msg.encode('utf-8'))
+                        print(f"[{self.get_timestamp()}] DEBUG: Sent to recipient {recipient_id}")
                     except Exception as e:
                         print(f"[{self.get_timestamp()}] Error sending private chat to recipient {recipient_id}: {e}")
+                else:
+                    print(f"[{self.get_timestamp()}] DEBUG: Recipient {recipient_id} not in clients dict")
         
         recipient_names = [self.clients.get(rid, {}).get('username', f'User{rid}') for rid in recipient_ids]
         print(f"[{timestamp}] Private chat from {sender_username} to {', '.join(recipient_names)}: {message}")
