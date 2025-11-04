@@ -425,17 +425,36 @@ class VideoConferenceClient(QMainWindow):
     
     def reposition_notifications(self):
         """Reposition all active notifications to bottom-right corner"""
+        if not self.active_notifications:
+            return
+            
+        notification_width = 340
         notification_height = 90
         notification_gap = 10
-        margin_bottom = 200  # Space above control buttons
-        margin_right = 10  # Small margin from right edge
+        margin_bottom = 80  # Space from bottom edge
+        margin_right = 20  # Space from right edge
+        
+        # Get the main window geometry
+        window_width = self.width()
+        window_height = self.height()
         
         for idx, notif in enumerate(self.active_notifications):
-            # Calculate position from bottom
-            y_pos = self.height() - margin_bottom - ((idx + 1) * (notification_height + notification_gap))
-            x_pos = self.width() - 340 - margin_right
+            # Calculate position from bottom-right corner
+            x_pos = window_width - notification_width - margin_right
+            y_pos = window_height - margin_bottom - ((idx + 1) * (notification_height + notification_gap))
+            
+            # Make sure notification is visible
+            if y_pos < 0:
+                y_pos = 10  # If too many notifications, start from top
+            
             notif.move(x_pos, y_pos)
             notif.raise_()  # Ensure it stays on top
+    
+    def resizeEvent(self, event):
+        """Handle window resize - reposition notifications"""
+        super().resizeEvent(event)
+        if hasattr(self, 'active_notifications'):
+            self.reposition_notifications()
         
     def connect_to_server(self, server_ip, username):
         """Connect to the server"""
