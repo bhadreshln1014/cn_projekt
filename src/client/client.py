@@ -107,6 +107,80 @@ class VideoConferenceClient(QMainWindow):
         self.people_panel_visible = False
         self.settings_panel_visible = False
         
+        # Notification tracking
+        self.active_notifications = []
+        
+    def show_chat_notification(self, sender, message, notification_type="Message"):
+        """Show a notification popup for incoming chat messages"""
+        # Create notification widget
+        notification = QFrame(self)
+        notification.setStyleSheet("""
+            QFrame {
+                background-color: #2d2d30;
+                border: 2px solid #007acc;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        notification.setFixedWidth(300)
+        notification.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        layout = QVBoxLayout(notification)
+        layout.setSpacing(5)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Header with sender name and type
+        header_label = QLabel(f"💬 {notification_type} from {sender}")
+        header_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        header_label.setStyleSheet("color: #007acc; background: transparent; border: none;")
+        layout.addWidget(header_label)
+        
+        # Message preview (truncate if too long)
+        preview = message[:50] + "..." if len(message) > 50 else message
+        message_label = QLabel(preview)
+        message_label.setFont(QFont("Arial", 9))
+        message_label.setStyleSheet("color: #e8eaed; background: transparent; border: none;")
+        message_label.setWordWrap(True)
+        layout.addWidget(message_label)
+        
+        # Click to open chat hint
+        hint_label = QLabel("Click to view →")
+        hint_label.setFont(QFont("Arial", 8))
+        hint_label.setStyleSheet("color: #a0a0a0; background: transparent; border: none;")
+        hint_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(hint_label)
+        
+        # Make notification clickable
+        notification.mousePressEvent = lambda event: self.notification_clicked(notification)
+        
+        # Position notification (stack them if multiple)
+        y_offset = 80 + (len(self.active_notifications) * 110)
+        notification.move(self.width() - 320, y_offset)
+        notification.show()
+        
+        # Add to active notifications
+        self.active_notifications.append(notification)
+        
+        # Auto-hide after 5 seconds
+        QTimer.singleShot(5000, lambda: self.hide_notification(notification))
+    
+    def notification_clicked(self, notification):
+        """Handle notification click - open chat panel"""
+        self.hide_notification(notification)
+        if not self.chat_panel_visible:
+            self.toggle_chat_panel()
+    
+    def hide_notification(self, notification):
+        """Hide and remove a notification"""
+        if notification in self.active_notifications:
+            self.active_notifications.remove(notification)
+            notification.deleteLater()
+            
+            # Reposition remaining notifications
+            for idx, notif in enumerate(self.active_notifications):
+                y_offset = 80 + (idx * 110)
+                notif.move(self.width() - 320, y_offset)
+        
     def connect_to_server(self, server_ip, username):
         """Connect to the server"""
         try:
@@ -762,7 +836,6 @@ class VideoConferenceClient(QMainWindow):
                             
                             # Re-evaluate layout when user count changes
                             if old_user_count != new_user_count:
-                                print(f"[{self.get_timestamp()}] DEBUG: User count changed from {old_user_count} to {new_user_count}, re-evaluating layout")
                                 if self.layout_mode == "auto":
                                     QTimer.singleShot(100, self.determine_and_apply_layout)
                         except:
@@ -792,21 +865,15 @@ class VideoConferenceClient(QMainWindow):
                     elif message.startswith("PRIVATE_CHAT:"):
                         # Received private chat message: PRIVATE_CHAT:sender_id|sender_username|timestamp|recipient_ids|message
                         try:
-                            print(f"[{self.get_timestamp()}] DEBUG: Received PRIVATE_CHAT message: {message[:100]}")
-                            print(f"[{self.get_timestamp()}] DEBUG: Full message: {repr(message)}")
                             # Remove "PRIVATE_CHAT:" prefix and split by pipe
                             content = message[13:]  # Remove "PRIVATE_CHAT:"
-                            print(f"[{self.get_timestamp()}] DEBUG: Content after removing prefix: {repr(content[:100])}")
                             parts = content.split("|", 4)  # Split into max 5 parts
-                            print(f"[{self.get_timestamp()}] DEBUG: Split into {len(parts)} parts: {parts}")
                             if len(parts) >= 5:
                                 sender_id = int(parts[0])
                                 sender_username = parts[1]
                                 timestamp = parts[2]
                                 recipient_ids_str = parts[3]
                                 chat_message = parts[4]
-                                
-                                print(f"[{self.get_timestamp()}] DEBUG: sender={sender_username}, recipients={recipient_ids_str}, message={chat_message[:50] if len(chat_message) > 50 else chat_message}")
                                 
                                 # Get recipient names
                                 recipient_ids = [int(rid) for rid in recipient_ids_str.split(",")]
@@ -817,8 +884,6 @@ class VideoConferenceClient(QMainWindow):
                                             recipient_names.append(self.users[rid])
                                         elif rid == self.client_id:
                                             recipient_names.append("You")
-                                
-                                print(f"[{self.get_timestamp()}] DEBUG: About to display private message - recipient_names={recipient_names}")
                                 
                                 # Display in chat window - call directly since we're already in a QTimer callback
                                 self.display_chat_message(sender_username, timestamp, chat_message, is_private=True, recipient_names=recipient_names)
@@ -2304,21 +2369,16 @@ class VideoConferenceClient(QMainWindow):
         try:
             recipient = self.recipient_combo.currentText()
             
-            print(f"[{self.get_timestamp()}] DEBUG: Sending chat - recipient='{recipient}'")
-            print(f"[{self.get_timestamp()}] DEBUG: selected_recipients={self.selected_recipients}")
-            
             if recipient == "Everyone":
                 # Public message
                 chat_data = f"CHAT:{message}\n"
                 self.tcp_socket.send(chat_data.encode('utf-8'))
-                print(f"[{self.get_timestamp()}] DEBUG: Sent public chat")
             elif recipient.startswith("Multiple ("):
                 # Multiple recipients selected
                 if self.selected_recipients:
                     recipient_ids = ",".join(map(str, self.selected_recipients))
                     chat_data = f"PRIVATE_CHAT:{recipient_ids}:{message}\n"
                     self.tcp_socket.send(chat_data.encode('utf-8'))
-                    print(f"[{self.get_timestamp()}] DEBUG: Sent private chat to multiple: {recipient_ids}")
                 else:
                     QMessageBox.warning(self, "No Recipients", "Please select recipients first.")
                     return
@@ -2335,7 +2395,6 @@ class VideoConferenceClient(QMainWindow):
                 if recipient_id is not None:
                     chat_data = f"PRIVATE_CHAT:{recipient_id}:{message}\n"
                     self.tcp_socket.send(chat_data.encode('utf-8'))
-                    print(f"[{self.get_timestamp()}] DEBUG: Sent private chat to {recipient} (ID: {recipient_id})")
                 else:
                     QMessageBox.critical(self, "Error", "Recipient not found.")
                     return
@@ -2349,8 +2408,6 @@ class VideoConferenceClient(QMainWindow):
     
     def display_chat_message(self, username, timestamp, message, is_system=False, is_private=False, recipient_names=None):
         """Display a chat message in the chat window"""
-        print(f"[{self.get_timestamp()}] DEBUG: display_chat_message called - username={username}, is_private={is_private}, recipient_names={recipient_names}")
-        
         if is_system:
             # System message (e.g., user joined/left)
             text = f"[SYSTEM] {message}"
@@ -2358,17 +2415,20 @@ class VideoConferenceClient(QMainWindow):
             # Private message
             recipient_text = f" to {', '.join(recipient_names)}" if recipient_names else ""
             text = f"[{timestamp}] [PRIVATE] {username}{recipient_text}: {message}"
-            print(f"[{self.get_timestamp()}] DEBUG: Private message text: {text}")
         else:
             # Regular chat message
             text = f"[{timestamp}] {username}: {message}"
         
-        print(f"[{self.get_timestamp()}] DEBUG: Appending to chat display: {text}")
         self.chat_display.append(text)
         
         # Auto-scroll to bottom
         scrollbar = self.chat_display.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+        
+        # Show notification if chat panel is not visible and message is not from self
+        if not self.chat_panel_visible and username != self.username:
+            notification_type = "Private" if is_private else "Message"
+            self.show_chat_notification(username, message, notification_type)
     
     def show_recipient_selector(self):
         """Show dialog to select multiple recipients"""
@@ -2447,7 +2507,6 @@ class VideoConferenceClient(QMainWindow):
             recipients = ["Everyone"]
             
             with self.users_lock:
-                print(f"[{self.get_timestamp()}] DEBUG: Building recipient list from users: {self.users}")
                 for user_id, username in self.users.items():
                     if user_id != self.client_id:  # Don't include self
                         recipients.append(username)
@@ -3032,11 +3091,6 @@ class VideoConferenceClient(QMainWindow):
     
     def update_spotlight_layout(self):
         """Update spotlight mode layout - main content + sidebar thumbnails"""
-        print(f"[{self.get_timestamp()}] DEBUG: Updating spotlight layout")
-        print(f"[{self.get_timestamp()}] DEBUG: current_presenter_id={self.current_presenter_id}")
-        print(f"[{self.get_timestamp()}] DEBUG: show_self_video={self.show_self_video}, camera_checked={self.camera_btn.isChecked()}")
-        print(f"[{self.get_timestamp()}] DEBUG: capturing={self.capturing}")
-        
         # Clear existing sidebar widgets
         for i in reversed(range(self.sidebar_widget_layout.count())):
             widget = self.sidebar_widget_layout.itemAt(i).widget()
@@ -3067,9 +3121,6 @@ class VideoConferenceClient(QMainWindow):
         # Add self if showing self video (camera is ON)
         if self.show_self_video and self.camera_btn.isChecked():
             participants_to_show.append(('self', self.client_id, self.username))
-            print(f"[{self.get_timestamp()}] DEBUG: Added self to sidebar")
-        else:
-            print(f"[{self.get_timestamp()}] DEBUG: Self NOT added to sidebar (show_self_video={self.show_self_video}, camera_checked={self.camera_btn.isChecked()})")
         
         # Add other participants (excluding spotlight participant if it's a video)
         with self.streams_lock:
@@ -3079,9 +3130,6 @@ class VideoConferenceClient(QMainWindow):
                         continue  # Skip the spotlight participant
                     username = self.users.get(client_id, f"User {client_id}")
                     participants_to_show.append(('other', client_id, username))
-                    print(f"[{self.get_timestamp()}] DEBUG: Added {username} to sidebar")
-        
-        print(f"[{self.get_timestamp()}] DEBUG: Total participants in sidebar: {len(participants_to_show)}")
         
         # Create thumbnail widgets
         for participant_type, client_id, username in participants_to_show:
