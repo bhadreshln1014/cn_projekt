@@ -49,8 +49,9 @@ class VideoConferenceServer:
         self.video_frames = {}
         self.frames_lock = threading.Lock()
         
-        # Audio buffers: {client_id: latest_audio_data}
+        # Audio buffers: {client_id: audio_data}
         self.audio_buffers = {}
+        self.audio_timestamps = {}  # Track when audio was last received from each client
         self.audio_lock = threading.Lock()
         
         # Screen sharing state
@@ -328,9 +329,23 @@ class VideoConferenceServer:
                     if client_id in self.clients:
                         self.clients[client_id]['audio_address'] = addr
                 
-                # Store the audio data
+                # Store the audio data with timestamp
+                current_time = time.time()
                 with self.audio_lock:
                     self.audio_buffers[client_id] = audio_data
+                    self.audio_timestamps[client_id] = current_time
+                    
+                    # Clean up old audio buffers (older than 0.5 seconds = likely muted/disconnected)
+                    stale_clients = []
+                    for cid, timestamp in self.audio_timestamps.items():
+                        if current_time - timestamp > 0.5:
+                            stale_clients.append(cid)
+                    
+                    for cid in stale_clients:
+                        if cid in self.audio_buffers:
+                            del self.audio_buffers[cid]
+                        if cid in self.audio_timestamps:
+                            del self.audio_timestamps[cid]
                 
                 # Mix and broadcast audio
                 self.mix_and_broadcast_audio()
