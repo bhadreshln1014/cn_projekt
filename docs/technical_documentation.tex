@@ -1,0 +1,2011 @@
+% ============================================================================
+% Technical Documentation: LAN Multi-User Communication Application
+% ============================================================================
+% 
+% This LaTeX document provides comprehensive technical documentation for a
+% Python-based LAN communication application featuring:
+%   - Video conferencing (640x480 @ 30fps, JPEG 60%)
+%   - Audio communication (44.1kHz, server-side mixing, noise gate)
+%   - Group chat (broadcast & private messaging)
+%   - Screen sharing (960x540 @ 10fps, mutual exclusion)
+%   - File sharing (in-memory, up to 100MB)
+%
+% Architecture:
+%   - Client-Server with star topology
+%   - TCP: Ports 5000 (control), 5003 (screen control), 5005 (files)
+%   - UDP: Ports 5001 (video), 5002 (audio), 5004 (screen data)
+%   - Multi-threaded server and client
+%   - PyQt6 GUI with Material Design
+%
+% To compile: pdflatex technical_documentation.tex
+% Screenshots: Replace placeholder figures with actual images
+% ============================================================================
+
+\documentclass[12pt]{article}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+
+\geometry{a4paper, margin=1in}
+
+% Fix for fancyhdr warning
+\setlength{\headheight}{14.49998pt}
+\addtolength{\topmargin}{-2.49998pt}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{linkcolor}{rgb}{0,0.4,0.6}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=linkcolor,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={LAN Multi-User Communication Application},
+    pdfpagemode=FullScreen,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{LAN Multi-User Communication Application}
+\fancyhead[R]{\today}
+\fancyfoot[C]{\thepage}
+
+\title{\textbf{Technical Documentation} \\ 
+       \Large LAN Multi-User Communication Application}
+\author{Computer Networks Project}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+
+\tableofcontents
+\newpage
+
+\section{Project Overview}
+
+\subsection{Project Goals and Objectives}
+
+The goal of this project is to develop a robust, standalone, and server-based multi-user communication application that operates \textbf{exclusively over a Local Area Network (LAN)}. This system provides a comprehensive suite of collaboration tools, enabling teams to communicate and share information in environments where internet access is unavailable, unreliable, or restricted.
+
+\subsubsection{Primary Objectives}
+\begin{enumerate}
+    \item \textbf{LAN-Only Operation}: The application must function completely within a local area network without requiring internet connectivity
+    \item \textbf{Comprehensive Collaboration}: Provide an all-in-one solution integrating video, audio, chat, screen sharing, and file transfer
+    \item \textbf{Socket-Based Communication}: Implement all network communications using low-level socket programming (TCP and UDP)
+    \item \textbf{Real-Time Performance}: Achieve low-latency communication suitable for real-time video and audio conferencing
+    \item \textbf{User-Friendly Interface}: Deliver an intuitive graphical interface that consolidates all functionalities in a single window
+\end{enumerate}
+
+\subsubsection{Target Use Cases}
+\begin{itemize}
+    \item Corporate meetings in secure, air-gapped environments
+    \item Educational institutions with restricted internet access
+    \item Remote locations with unreliable internet connectivity
+    \item Classified or sensitive communications requiring network isolation
+    \item Development and testing environments
+\end{itemize}
+
+\section{Executive Summary}
+This document provides comprehensive technical documentation for the LAN-Based Multi-User Communication Application. The system is a feature-rich, real-time collaboration platform designed for local area networks, supporting video conferencing, audio communication, group chat, screen sharing, and file sharing capabilities.
+
+The application implements a client-server architecture using Python 3.8+, leveraging multiple network protocols (TCP and UDP) to provide reliable control messaging and low-latency media streaming. It supports up to 10 concurrent users and provides a modern, intuitive user interface built with PyQt6.
+
+\subsection{Technology Stack}
+\begin{itemize}
+    \item \textbf{Programming Language}: Python 3.8+
+    \item \textbf{GUI Framework}: PyQt6 (Qt 6.x)
+    \item \textbf{Video Processing}: OpenCV (cv2) 4.5+
+    \item \textbf{Audio Processing}: PyAudio 0.2.11+
+    \item \textbf{Screen Capture}: MSS (Multi-Screen Shot) 6.1+
+    \item \textbf{Numerical Computing}: NumPy 1.19+
+    \item \textbf{Optional Icons}: QtAwesome 1.0+ (Material Design icons)
+    \item \textbf{Networking}: Python socket, struct, pickle libraries
+    \item \textbf{Threading}: Python threading, queue libraries
+\end{itemize}
+
+\subsection{Key Features}
+\begin{itemize}
+    \item \textbf{Video Conferencing}: Real-time video streaming at 640x480, 30 FPS with JPEG compression (60\% quality)
+    \item \textbf{Audio Communication}: Low-latency audio at 44.1kHz with server-side mixing and client-side noise gate
+    \item \textbf{Group Chat}: Broadcast messaging and private messaging with chat history and desktop notifications
+    \item \textbf{Screen Sharing}: Single-presenter screen broadcasting at 960x540, 10 FPS with mutual exclusion
+    \item \textbf{File Sharing}: In-memory file storage (up to 100MB per file) with upload, download, and delete operations
+    \item \textbf{Modern UI}: Google Meet-inspired interface with collapsible panels, grid layouts, and Material Design icons
+\end{itemize}
+
+\subsection{Network Architecture and Socket Programming}
+
+\subsubsection{LAN-Only Operation}
+
+This application is specifically designed to operate \textbf{exclusively over Local Area Networks (LAN)} with \textbf{no internet connectivity required}:
+
+\begin{itemize}
+    \item \textbf{Zero Internet Dependency}: All communication occurs within the local network
+    \item \textbf{Offline-First Design}: Application fully functional without any external network access
+    \item \textbf{Network Isolation}: Suitable for air-gapped, secure, or restricted environments
+    \item \textbf{Server Discovery}: Clients connect via LAN IP address (e.g., 192.168.1.100)
+    \item \textbf{No Cloud Services}: No external servers, APIs, or cloud dependencies
+\end{itemize}
+
+\subsubsection{Socket Programming Implementation}
+
+All network communication is implemented using \textbf{low-level TCP/IP socket programming}:
+
+\textbf{TCP Sockets (Reliable, Connection-Oriented)}:
+\begin{lstlisting}[language=Python, caption=TCP socket creation example]
+# Server TCP socket for control messages
+self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+self.tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+self.tcp_socket.bind((SERVER_HOST, SERVER_TCP_PORT))
+self.tcp_socket.listen(MAX_USERS)
+
+# Client TCP connection
+self.tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+self.tcp_socket.connect((server_ip, SERVER_TCP_PORT))
+\end{lstlisting}
+
+\textbf{UDP Sockets (Unreliable, Connectionless)}:
+\begin{lstlisting}[language=Python, caption=UDP socket creation example]
+# Server UDP socket for video streaming
+self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+self.udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+self.udp_socket.bind((SERVER_HOST, SERVER_UDP_PORT))
+
+# Client UDP socket for sending video
+self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+self.udp_socket.sendto(frame_data, (server_address, SERVER_UDP_PORT))
+\end{lstlisting}
+
+\textbf{Protocol Usage}:
+\begin{itemize}
+    \item \textbf{TCP}: Control messages, chat, file transfers (ports 5000, 5003, 5005)
+    \item \textbf{UDP}: Video, audio, screen sharing (ports 5001, 5002, 5004)
+    \item \textbf{Binary Protocols}: struct.pack/unpack for efficient data serialization
+    \item \textbf{Text Protocols}: UTF-8 encoded strings for control messages
+\end{itemize}
+
+\subsection{Core Functional Modules}
+
+The application successfully implements all five required core modules using socket programming:
+
+\subsubsection{Module 1: Multi-User Video Conferencing}
+
+\textbf{Implementation Status}: Fully Implemented
+
+\textbf{Key Features}:
+\begin{itemize}
+    \item \textbf{Video Capture}: OpenCV captures 640x480 frames from webcam at 30 FPS
+    \item \textbf{Compression}: Real-time JPEG compression at 60\% quality (~50 KB per frame)
+    \item \textbf{Transmission}: UDP socket on port 5001 for low-latency streaming
+    \item \textbf{Server Broadcasting}: Server receives from all clients and broadcasts to all others
+    \item \textbf{Client Rendering}: Dynamic grid layout (1x1 to 4x4) displays all participant videos simultaneously
+    \item \textbf{Packet Format}: \texttt{[4 bytes: client\_id][remaining: JPEG frame data]}
+\end{itemize}
+
+\textbf{Protocol}: UDP for minimal latency, acceptable packet loss for real-time video
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][4cm][c]{0.8\textwidth}{
+        \centering \textit{[PLACEHOLDER: Video Grid Screenshot]} \\
+        \vspace{0.5cm}
+        \small{Shows multiple participant video feeds in grid layout}
+    }}
+    \caption{Multi-user video conferencing with grid layout}
+    \label{fig:video_grid}
+\end{figure}
+
+\subsubsection{Module 2: Multi-User Audio Conferencing}
+
+\textbf{Implementation Status}: Fully Implemented
+
+\textbf{Key Features}:
+\begin{itemize}
+    \item \textbf{Audio Capture}: PyAudio captures 44.1kHz, 16-bit mono audio in 1024-sample chunks (~23ms)
+    \item \textbf{Encoding}: Raw PCM format, 2048 bytes per chunk
+    \item \textbf{Transmission}: UDP socket on port 5002 for real-time delivery
+    \item \textbf{Server Mixing}: NumPy-based audio mixing - each client receives all others' audio (excluding own)
+    \item \textbf{Noise Gate}: Client-side RMS threshold filter prevents echo and background noise
+    \item \textbf{Playback}: Jitter buffer (20 frames max, 5 frame prebuffer) ensures smooth audio
+\end{itemize}
+
+\textbf{Protocol}: UDP with server-side mixing to prevent feedback loops
+
+\subsubsection{Module 3: Slide \& Screen Sharing}
+
+\textbf{Implementation Status}: Fully Implemented
+
+\textbf{Key Features}:
+\begin{itemize}
+    \item \textbf{Presenter Role}: Mutual exclusion - only one presenter at a time
+    \item \textbf{Screen Capture}: MSS library captures primary monitor at 960x540, 10 FPS
+    \item \textbf{Compression}: JPEG at 50\% quality for balance of clarity and bandwidth (~30-40 KB per frame)
+    \item \textbf{Content Transmission}: UDP socket on port 5004 for screen frames
+    \item \textbf{Control Channel}: TCP socket on port 5003 for presenter permission management
+    \item \textbf{Broadcasting}: Server relays presenter's screen to all other clients
+    \item \textbf{UI Controls}: Start/stop presenting buttons with visual feedback
+\end{itemize}
+
+\textbf{Protocol}: TCP for control (reliability), UDP for screen data (low latency)
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][4cm][c]{0.8\textwidth}{
+        \centering \textit{[PLACEHOLDER: Screen Sharing in Progress]} \\
+        \vspace{0.5cm}
+        \small{Shows presenter's screen displayed in client interface}
+    }}
+    \caption{Screen sharing with active presenter}
+    \label{fig:screen_share_active}
+\end{figure}
+
+\subsubsection{Module 4: Group Text Chat}
+
+\textbf{Implementation Status}: Fully Implemented
+
+\textbf{Key Features}:
+\begin{itemize}
+    \item \textbf{Message Transmission}: TCP socket on port 5000 for reliable delivery
+    \item \textbf{Message Format}: \texttt{CHAT:<sender\_id>:<username>:<timestamp>:<message>}
+    \item \textbf{Broadcasting}: Server receives and immediately broadcasts to all connected clients
+    \item \textbf{Chat History}: Chronological log with sender username, timestamp, and message content
+    \item \textbf{Private Messages}: Multi-recipient private messaging with \texttt{PRIVATE\_CHAT} protocol
+    \item \textbf{Notifications}: Desktop popups for new messages when chat panel is closed
+\end{itemize}
+
+\textbf{Protocol}: TCP for guaranteed message delivery and ordering
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][5cm][c]{0.65\textwidth}{
+        \centering \textit{[PLACEHOLDER: Chat Panel with Message History]} \\
+        \vspace{0.5cm}
+        \small{Shows chat interface with chronological message log and input field}
+    }}
+    \caption{Group text chat with message history}
+    \label{fig:chat_history}
+\end{figure}
+
+\subsubsection{Module 5: File Sharing}
+
+\textbf{Implementation Status}: Fully Implemented
+
+\textbf{Key Features}:
+\begin{itemize}
+    \item \textbf{File Selection}: Qt file dialog for local file selection
+    \item \textbf{Upload Protocol}: TCP socket on port 5005 - \texttt{UPLOAD:<client\_id>:<filename>:<filesize>}
+    \item \textbf{Chunked Transfer}: 8KB chunks for reliable transmission of large files
+    \item \textbf{Server Storage}: In-memory file storage with metadata (filename, size, uploader, timestamp)
+    \item \textbf{Distribution}: Server broadcasts \texttt{FILE\_OFFER} to all clients upon successful upload
+    \item \textbf{Download}: Clients request files via \texttt{DOWNLOAD:<file\_id>} command
+    \item \textbf{Progress Tracking}: Real-time progress bars for upload and download operations
+    \item \textbf{File Management}: Uploaders can delete their own files; server broadcasts \texttt{FILE\_DELETED}
+\end{itemize}
+
+\textbf{Protocol}: TCP for error-free file delivery with progress tracking
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][4cm][c]{0.65\textwidth}{
+        \centering \textit{[PLACEHOLDER: File Transfer with Progress Bar]} \\
+        \vspace{0.5cm}
+        \small{Shows file list with upload/download progress indicators}
+    }}
+    \caption{File sharing with transfer progress}
+    \label{fig:file_progress}
+\end{figure}
+
+\section{System Architecture}
+
+\subsection{Overview}
+The application follows a centralized client-server architecture with a star topology. All communication flows through a central server, which manages connections, routes data, and maintains session state. This architecture simplifies client implementation and provides centralized control over all application features.
+
+\subsection{Network Topology}
+Figure~\ref{fig:topology} illustrates the network topology where all clients connect to a central server.
+
+\begin{figure}[H]
+    \centering
+    \small
+    \begin{verbatim}
+                        +-------------------------+
+                        |   Central Server        |
+                        |  (e.g., 192.168.1.100)  |
+                        |                         |
+                        |  TCP Ports: 5000, 5003, |
+                        |             5005        |
+                        |  UDP Ports: 5001, 5002, |
+                        |             5004        |
+                        +------------+------------+
+                                     |
+             +-----------------------+-----------------------+
+             |                       |                       |
+    +--------v--------+    +---------v--------+    +---------v--------+
+    | Client 1 (Alice)|    | Client 2 (Bob)   |    | Client 3 (Charlie)|
+    | ID: 0           |    | ID: 1            |    | ID: 2             |
+    |                 |    |                  |    |                   |
+    | TCP: Control,   |    | TCP: Control,    |    | TCP: Control,     |
+    |      Screen,    |    |      Screen,     |    |      Screen,      |
+    |      File       |    |      File        |    |      File         |
+    | UDP: Video,     |    | UDP: Video,      |    | UDP: Video,       |
+    |      Audio,     |    |      Audio,      |    |      Audio,       |
+    |      Screen     |    |      Screen      |    |      Screen       |
+    +-----------------+    +------------------+    +-------------------+
+    \end{verbatim}
+    \caption{Network topology showing server-client architecture with star topology}
+    \label{fig:topology}
+\end{figure}
+
+All clients establish both TCP and UDP connections with the server. The server acts as a central hub, receiving media streams from clients and broadcasting them to all other connected clients.
+
+\subsection{Server Architecture}
+
+The server is a multi-threaded application that handles multiple concurrent operations:
+
+\subsubsection{Server Components}
+\begin{itemize}
+    \item \textbf{Main Thread}: Accepts incoming TCP connections on port 5000 and spawns client handler threads
+    \item \textbf{UDP Video Receiver Thread}: Receives video frames from clients via UDP port 5001 and broadcasts to all others
+    \item \textbf{UDP Audio Receiver Thread}: Receives audio chunks via UDP port 5002, performs server-side mixing, and broadcasts mixed audio
+    \item \textbf{Screen Sharing Control Thread}: Manages presenter permissions via TCP port 5003 using mutual exclusion
+    \item \textbf{Screen UDP Receiver Thread}: Receives screen frames via UDP port 5004 and broadcasts to all clients
+    \item \textbf{File Transfer Thread}: Handles file upload/download operations via TCP port 5005
+    \item \textbf{Client Handler Threads}: One per connected client for TCP control communication (heartbeat, chat, user list updates)
+\end{itemize}
+
+The server uses thread locks (\texttt{clients\textunderscore lock}, \texttt{frames\textunderscore lock}, \texttt{audio\textunderscore lock}, \texttt{presenter\textunderscore lock}, \texttt{chat\textunderscore lock}, \texttt{files\textunderscore lock}) to ensure thread-safe access to shared data structures.
+
+\subsubsection{Server Data Structures}
+\begin{lstlisting}[language=Python, caption=Server data structures]
+# Connected clients
+clients = {
+    client_id: {
+        'tcp_conn': socket,
+        'address': (ip, port),
+        'udp_address': (ip, port),
+        'audio_address': (ip, port),
+        'screen_udp_address': (ip, port),
+        'username': str
+    }
+}
+
+# Video frames buffer
+video_frames = {
+    client_id: jpeg_frame_data
+}
+
+# Audio buffers
+audio_buffers = {
+    client_id: pcm_audio_data
+}
+
+# Chat history
+chat_history = [
+    {
+        'client_id': id,
+        'username': name,
+        'message': text,
+        'timestamp': time
+    }
+]
+
+# Shared files
+shared_files = {
+    file_id: {
+        'filename': name,
+        'size': bytes,
+        'uploader_id': id,
+        'uploader_name': name,
+        'data': bytes,
+        'timestamp': time
+    }
+}
+\end{lstlisting}
+
+\subsection{Client Architecture}
+
+The client application provides the user interface and manages media capture and playback:
+
+\subsubsection{Client Components}
+\begin{itemize}
+    \item \textbf{Main/GUI Thread}: Renders the PyQt6 interface at ~30 FPS, handles user interactions, and updates video grid
+    \item \textbf{Video Capture Thread}: Captures 640x480 frames from webcam using OpenCV, compresses to JPEG at 60\% quality
+    \item \textbf{Video Sender Thread}: Sends compressed video frames via UDP to server (embedded in capture thread)
+    \item \textbf{Video Receiver Thread}: Receives video frames from server via UDP and stores in \texttt{video\_streams} dict
+    \item \textbf{Audio Capture Thread}: Captures audio from microphone (1024 samples/chunk), applies noise gate threshold (RMS > 100) to prevent echo
+    \item \textbf{Audio Sender Thread}: Sends audio chunks via UDP to server (embedded in capture thread)
+    \item \textbf{Audio Playback Worker Thread}: Plays received mixed audio with jitter buffer (queue size: 20, prebuffer: 5 frames)
+    \item \textbf{TCP Control Receiver Thread}: Receives control messages (user list, chat, file offers, presenter status)
+    \item \textbf{Screen Capture Thread}: Captures primary monitor using MSS library, compresses to JPEG at 50\% quality when presenting
+    \item \textbf{Screen Receiver Thread}: Receives and displays shared screen frames via UDP
+\end{itemize}
+
+The client uses PyQt6 signals (\texttt{chat\textunderscore message\textunderscore received}, \texttt{user\textunderscore join\textunderscore signal}, \texttt{user\textunderscore left\textunderscore signal}, etc.) for thread-safe GUI updates and locks (\texttt{streams\textunderscore lock}, \texttt{users\textunderscore lock}, \texttt{screen\textunderscore lock}) for shared data.
+
+\subsection{Configuration Management}
+
+The application uses a centralized configuration file (\texttt{src/common/config.py}) that defines all network ports, media parameters, and application constants. This file is imported by both server and client, ensuring consistency:
+
+\begin{lstlisting}[language=Python, caption=Configuration parameters (config.py)]
+# Server Configuration
+SERVER_HOST = '0.0.0.0'           # Listen on all interfaces
+SERVER_TCP_PORT = 5000            # Control messages
+SERVER_UDP_PORT = 5001            # Video streaming
+SERVER_AUDIO_PORT = 5002          # Audio streaming
+SERVER_SCREEN_PORT = 5003         # Screen control (TCP)
+SERVER_SCREEN_UDP_PORT = 5004     # Screen data (UDP)
+SERVER_FILE_PORT = 5005           # File transfer
+
+# Video Configuration
+VIDEO_WIDTH = 640
+VIDEO_HEIGHT = 480
+VIDEO_FPS = 30
+VIDEO_QUALITY = 60                # JPEG compression (0-100)
+
+# Audio Configuration
+AUDIO_RATE = 44100                # Sample rate (Hz)
+AUDIO_CHUNK = 1024                # Samples per chunk
+AUDIO_CHANNELS = 1                # Mono audio
+AUDIO_FORMAT = 8                  # pyaudio.paInt16
+AUDIO_BUFFER_SIZE = 10            # Jitter buffer size
+
+# Screen Sharing Configuration
+SCREEN_WIDTH = 960
+SCREEN_HEIGHT = 540
+SCREEN_FPS = 10
+SCREEN_QUALITY = 50
+MAX_SCREEN_PACKET_SIZE = 65000
+
+# Network Configuration
+MAX_PACKET_SIZE = 65507           # Max UDP packet
+CHUNK_SIZE = 60000                # Video chunk size
+
+# Session Configuration
+MAX_USERS = 10
+HEARTBEAT_INTERVAL = 5            # seconds
+
+# File Transfer Configuration
+FILE_CHUNK_SIZE = 8192            # 8KB chunks
+MAX_FILE_SIZE = 100 * 1024 * 1024 # 100MB limit
+\end{lstlisting}
+
+This centralized configuration allows easy tuning of performance parameters without modifying core application code.
+
+\subsubsection{Client Data Structures}
+\begin{lstlisting}[language=Python, caption=Client data structures]
+# Video streams from other users
+video_streams = {
+    client_id: numpy_array_frame
+}
+
+# User list
+users = {
+    client_id: username
+}
+
+# Audio buffer for jitter compensation
+audio_buffer = Queue(maxsize=20)
+\end{lstlisting}
+
+\section{Session Management}
+
+The server implements robust session management to handle user connections, disconnections, and session lifecycle gracefully.
+
+\subsection{Connection Establishment}
+
+When a client connects to the server:
+
+\begin{enumerate}
+    \item \textbf{TCP Connection}: Client establishes TCP connection to server on port 5000
+    \item \textbf{Authentication}: Client sends \texttt{CONNECT:<username>} message
+    \item \textbf{ID Assignment}: Server assigns unique \texttt{client\_id} (sequential counter)
+    \item \textbf{Registration}: Server stores client information in \texttt{clients} dictionary
+    \item \textbf{Acknowledgment}: Server responds with \texttt{ID:<client\_id>}
+    \item \textbf{User List Broadcast}: Server broadcasts updated user list to all connected clients
+    \item \textbf{Thread Spawn}: Server creates dedicated handler thread for this client
+\end{enumerate}
+
+\begin{lstlisting}[language=Python, caption=Server connection handling]
+def handle_client(self, conn, address):
+    """Handle a client TCP connection"""
+    client_id = None
+    
+    # Receive initial connection message with username
+    data = conn.recv(1024).decode('utf-8')
+    
+    if data.startswith("CONNECT:"):
+        username = data.split(":", 1)[1]
+        
+        with self.clients_lock:
+            client_id = self.client_id_counter
+            self.client_id_counter += 1
+            
+            self.clients[client_id] = {
+                'tcp_conn': conn,
+                'address': address,
+                'udp_address': None,
+                'username': username
+            }
+        
+        # Send client ID and broadcast user list
+        conn.send(f"ID:{client_id}".encode('utf-8'))
+        self.broadcast_user_list()
+\end{lstlisting}
+
+\subsection{Heartbeat Mechanism}
+
+To detect disconnected or unresponsive clients:
+
+\begin{itemize}
+    \item \textbf{Interval}: Every 5 seconds (configurable via \texttt{HEARTBEAT\_INTERVAL})
+    \item \textbf{Protocol}: Client sends \texttt{PING}, server responds with \texttt{PONG}
+    \item \textbf{Failure Detection}: If client doesn't respond, connection is marked as dead
+    \item \textbf{Keep-Alive}: Prevents firewall/NAT timeout on idle connections
+\end{itemize}
+
+\subsection{Graceful Disconnection}
+
+When a client disconnects (voluntarily or due to network failure), the server:
+
+\begin{enumerate}
+    \item Detects TCP connection close or timeout
+    \item Removes client entry from \texttt{clients} dictionary
+    \item Frees video frames, audio buffers, and other resources
+    \item Releases presenter slot if client was presenting
+    \item Broadcasts updated user list to remaining clients
+    \item Sends user-left notifications to other clients
+\end{enumerate}
+
+Session continues uninterrupted for remaining users - no single client failure affects others.
+
+\subsection{Dynamic Join/Leave Support}
+
+\begin{itemize}
+    \item \textbf{Late Join}: New users can join ongoing conferences and see all active participants immediately
+    \item \textbf{Chat History}: Recent messages are available to new joiners
+    \item \textbf{File Access}: Shared files remain accessible to new participants
+    \item \textbf{No Interruption}: Existing participants experience no disruption
+    \item \textbf{Auto-Recovery}: Users can reconnect after network issues
+    \item \textbf{Maximum Capacity}: Up to 10 concurrent users (configurable)
+\end{itemize}
+
+\section{Communication Protocols}
+
+The application uses multiple network protocols, each optimized for its specific purpose. TCP is used for reliable control messaging and file transfers, while UDP is used for real-time media streaming where low latency is critical.
+
+\subsection{Port Allocation}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|p{6cm}|}
+\hline
+\textbf{Port} & \textbf{Protocol} & \textbf{Purpose} & \textbf{Description} \\
+\hline
+5000 & TCP & Control Messages & User authentication, session management, chat \\
+\hline
+5001 & UDP & Video Streaming & Real-time video frame transmission \\
+\hline
+5002 & UDP & Audio Streaming & Real-time audio chunk transmission \\
+\hline
+5003 & TCP & Screen Control & Screen sharing permissions and control \\
+\hline
+5004 & UDP & Screen Data & Screen frame transmission \\
+\hline
+5005 & TCP & File Transfer & File upload and download \\
+\hline
+\end{tabular}
+\caption{Port allocation for different services}
+\label{tab:ports}
+\end{table}
+
+\subsection{Module 1: Video Conferencing Protocol}
+
+\subsubsection{Connection Establishment}
+When a client starts, it establishes a TCP connection to the server on port 5000:
+
+\begin{lstlisting}[caption=Client connection message]
+Client -> Server: "CONNECT:<username>"
+Server -> Client: "ID:<client_id>"
+Server -> All Clients: "USERS:<serialized_user_list>"
+\end{lstlisting}
+
+The serialized user list is a pickled Python list containing dictionaries with user information.
+
+\subsubsection{Video Streaming}
+Video frames are transmitted via UDP on port 5001. Each packet contains:
+\begin{itemize}
+    \item \textbf{Client ID} (4 bytes): Identifies the sender
+    \item \textbf{JPEG Frame Data} (variable length): Compressed video frame
+\end{itemize}
+
+\textbf{Packet Format:}
+\begin{verbatim}
++----------------+--------------------------------+
+| Client ID      | JPEG Frame Data                |
+| (4 bytes)      | (variable, ~50KB)              |
+| uint32         | Raw bytes                      |
++----------------+--------------------------------+
+\end{verbatim}
+
+\textbf{Video Specifications:}
+\begin{itemize}
+    \item Resolution: 640x480 pixels
+    \item Frame Rate: 30 FPS
+    \item Compression: JPEG at 60\% quality
+    \item Average Packet Size: 50 KB per frame
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \small
+    \begin{verbatim}
+Client A                      Server                     Client B, C
+  |                             |                             |
+  | [Capture Video]             |                             |
+  | [Compress JPEG 60%]         |                             |
+  |                             |                             |
+  | UDP: [ID:0][JPEG_DATA]      |                             |
+  |---------------------------->|                             |
+  |                             | [Extract ID:0]              |
+  |                             | [Store frame]               |
+  |                             |                             |
+  |                             | UDP: [ID:0][JPEG_DATA]      |
+  |                             |---------------------------->|
+  |                             |---------------------------->|
+  |                             |                             | [Decode JPEG]
+  |                             |                             | [Display Video]
+  |                             |                             |
+    \end{verbatim}
+    \caption{Video conferencing data flow showing capture, transmission, and broadcast}
+    \label{fig:video_flow}
+\end{figure}
+
+\subsubsection{Heartbeat Mechanism}
+To detect disconnected clients, a heartbeat mechanism is implemented:
+\begin{lstlisting}
+Every 5 seconds:
+    Client -> Server: "PING"
+    Server -> Client: "PONG"
+\end{lstlisting}
+
+\subsection{Module 2: Audio Communication Protocol}
+
+\subsubsection{Audio Specifications}
+\begin{itemize}
+    \item Sample Rate: 44,100 Hz
+    \item Channels: Mono (1 channel)
+    \item Format: 16-bit PCM
+    \item Chunk Size: 1,024 samples (~23ms of audio)
+    \item Transport: UDP on port 5002
+\end{itemize}
+
+\subsubsection{Audio Packet Format}
+\begin{verbatim}
++----------------+--------------------------------+
+| Client ID      | PCM Audio Data                 |
+| (4 bytes)      | (2048 bytes: 1024 samples x 2) |
+| uint32         | Raw bytes                      |
++----------------+--------------------------------+
+\end{verbatim}
+
+\subsubsection{Client-Side Noise Gate}
+To prevent echo and reduce background noise, the client implements a noise gate that only sends audio above a certain threshold:
+
+\begin{lstlisting}[language=Python, caption=Client-side noise gate implementation]
+NOISE_GATE_THRESHOLD = 100  # RMS threshold
+
+while self.audio_capturing and self.connected:
+    # Read audio data
+    audio_data = self.audio_stream_input.read(AUDIO_CHUNK)
+    
+    # Convert to numpy array
+    audio_array = np.frombuffer(audio_data, dtype=np.int16)
+    
+    # Calculate RMS (loudness)
+    rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
+    
+    # Only send if above noise gate threshold
+    if rms > NOISE_GATE_THRESHOLD:
+        packet = struct.pack('I', self.client_id) + audio_data
+        self.audio_udp_socket.sendto(packet, 
+                                     (server_address, AUDIO_PORT))
+    # else: too quiet, don't send (reduces echo/feedback)
+\end{lstlisting}
+
+This prevents the microphone from picking up audio playing from the speakers and sending it back, which would cause echo.
+
+\subsubsection{Server-Side Audio Mixing}
+The server implements audio mixing to prevent audio feedback and echo. Each client receives a mixed stream containing all other participants' audio except their own.
+
+\begin{lstlisting}[language=Python, caption=Server audio mixing implementation]
+def mix_and_broadcast_audio(self):
+    """Mix all audio streams and broadcast to all clients"""
+    with self.audio_lock:
+        if len(self.audio_buffers) == 0:
+            return
+        
+        # Convert all audio buffers to float32 numpy arrays
+        audio_data_map = {}
+        for client_id, audio_data in self.audio_buffers.items():
+            audio_array = np.frombuffer(audio_data, dtype=np.int16)
+            audio_data_map[client_id] = audio_array.astype(np.float32)
+        
+        # Broadcast to each client (excluding their own audio)
+        with self.clients_lock:
+            for target_client_id, client_info in self.clients.items():
+                if client_info.get('audio_address') is not None:
+                    # Collect audio from all EXCEPT target client
+                    audio_arrays = []
+                    for source_id, audio_array in audio_data_map.items():
+                        if source_id != target_client_id:
+                            audio_arrays.append(audio_array)
+                    
+                    if len(audio_arrays) > 0:
+                        # Ensure all arrays same length
+                        min_length = min(len(arr) for arr in audio_arrays)
+                        audio_arrays = [arr[:min_length] for arr in audio_arrays]
+                        
+                        # Average all audio streams (prevents clipping)
+                        mixed_audio = np.mean(audio_arrays, axis=0)
+                        
+                        # Convert back to int16 and send
+                        mixed_audio = np.clip(mixed_audio, -32768, 32767)
+                        mixed_data = mixed_audio.astype(np.int16).tobytes()
+                        
+                        self.audio_socket.sendto(mixed_data, 
+                                                client_info['audio_address'])
+\end{lstlisting}
+
+Each client receives a mixed audio stream containing all other participants' audio, but not their own, preventing echo and feedback. The server performs mixing at regular intervals (every 23ms) matching the audio chunk duration.
+
+\begin{figure}[H]
+    \centering
+    \small
+    \begin{verbatim}
+Client A              Server                Client B        Client C
+  |                     |                      |               |
+  | UDP: [ID:0][Audio]  |                      |               |
+  |-------------------->|                      |               |
+  |                     | [Store in buffer]    |               |
+  |                     |                      |               |
+  |                     | UDP: [ID:1][Audio]   |               |
+  |                     |<---------------------|               |
+  |                     | [Store in buffer]    |               |
+  |                     |                      |               |
+  |                     | [Mix audio from B,C] |               |
+  |                     | (exclude A)          |               |
+  |                     |                      |               |
+  | UDP: [Mixed Audio]  |                      |               |
+  |<--------------------|                      |               |
+  | [Play]              |                      |               |
+  |                     |                      |               |
+  |                     | [Mix audio from A,C] |               |
+  |                     | (exclude B)          |               |
+  |                     |                      |               |
+  |                     | UDP: [Mixed Audio]   |               |
+  |                     |--------------------->|               |
+  |                     |                      | [Play]        |
+    \end{verbatim}
+    \caption{Audio communication with server-side mixing to prevent echo}
+    \label{fig:audio_flow}
+\end{figure}
+
+\subsection{Module 3: Screen Sharing Protocol}
+
+\subsubsection{Presenter Management}
+Screen sharing uses a mutual exclusion mechanism to ensure only one presenter at a time. The server maintains a \texttt{presenter\_id} variable protected by \texttt{presenter\_lock}:
+
+\begin{lstlisting}[language=Python, caption=Server presenter permission control]
+def handle_screen_share(self, conn, addr):
+    """Handle screen sharing control from presenter"""
+    # Receive client_id (4 bytes)
+    client_id_data = conn.recv(4)
+    client_id = struct.unpack('I', client_id_data)[0]
+    
+    # Check if this client can be presenter
+    with self.presenter_lock:
+        # Allow same client to reconnect
+        # Deny if different presenter exists
+        if (self.presenter_id is not None and 
+            self.presenter_id != client_id):
+            conn.sendall(b"DENIED")
+            conn.close()
+            return
+        
+        # Grant permission
+        self.presenter_id = client_id
+        conn.sendall(b"GRANTED")
+    
+    # Broadcast presenter status to all clients
+    self.broadcast_presenter_status()
+    
+    # Keep connection alive for control
+    # Connection close triggers presenter cleanup
+    while self.running:
+        data = conn.recv(1024)
+        if not data or b"STOP" in data:
+            break
+    
+    # Clean up on disconnect
+    with self.presenter_lock:
+        if self.presenter_id == client_id:
+            self.presenter_id = None
+            self.broadcast_presenter_status()
+\end{lstlisting}
+
+The TCP connection is kept alive to detect when the presenter disconnects or stops sharing, automatically releasing the presenter slot.
+
+\subsubsection{Screen Capture Specifications}
+\begin{itemize}
+    \item Resolution: 960x540 pixels (16:9 aspect ratio)
+    \item Frame Rate: 10 FPS (lower than video to reduce bandwidth)
+    \item Compression: JPEG at 50\% quality
+    \item Technology: MSS (Multi-Screen Shot) library
+    \item Target Monitor: Primary monitor only
+\end{itemize}
+
+\subsubsection{Screen Frame Transmission}
+Screen frames are sent via UDP on port 5004 with the same packet format as video:
+
+\begin{verbatim}
++----------------+--------------------------------+
+| Client ID      | JPEG Screen Frame Data         |
+| (4 bytes)      | (variable, ~30-40KB)           |
+| uint32         | Raw bytes                      |
++----------------+--------------------------------+
+\end{verbatim}
+
+\begin{figure}[H]
+    \centering
+    \small
+    \begin{verbatim}
+Presenter Client          Server                 Viewer Clients
+     |                       |                         |
+     | [Request to Present]  |                         |
+     | TCP: Connect(5003)    |                         |
+     |---------------------->|                         |
+     | TCP: Send client_id   |                         |
+     |---------------------->|                         |
+     |                       | [Check presenter_id]    |
+     |                       | if None OR same client: |
+     |                       |   GRANT                 |
+     |                       | else:                   |
+     |                       |   DENY                  |
+     |                       |                         |
+     | TCP: "GRANTED"        |                         |
+     |<----------------------|                         |
+     |                       |                         |
+     | [Start Screen Capture]|                         |
+     | [Compress JPEG 50%]   |                         |
+     |                       |                         |
+     | UDP: [ID][Frame](5004)|                         |
+     |---------------------->|                         |
+     |                       | [Broadcast to all]      |
+     |                       |                         |
+     |                       | UDP: [ID][Frame]        |
+     |                       |------------------------>|
+     |                       |                         | [Display Screen]
+     |                       |                         |
+     | TCP: "STOP"           |                         |
+     |---------------------->|                         |
+     |                       | [Clear presenter_id]    |
+     |                       | [Broadcast status]      |
+    \end{verbatim}
+    \caption{Screen sharing control flow with mutual exclusion}
+    \label{fig:screen_flow}
+\end{figure}
+
+\subsection{Module 4: Group Chat Protocol}
+
+The chat system supports both broadcast (group) and private messaging over the existing TCP control connection (port 5000).
+
+\subsubsection{Message Types}
+
+\textbf{1. Group Chat Messages}
+\begin{lstlisting}
+Client -> Server: "CHAT:<message>\n"
+Server -> All Clients: "CHAT:<sender_id>:<username>:<timestamp>:<message>\n"
+
+Example:
+Client sends: "CHAT:Hello everyone\n"
+Server broadcasts: "CHAT:0:Alice:14:30:15:Hello everyone\n"
+\end{lstlisting}
+
+\textbf{2. Private Chat Messages}
+\begin{lstlisting}
+Client -> Server: "PRIVATE_CHAT:<recipient_ids>:<message>\n"
+Server -> Recipients: "PRIVATE_CHAT:<sender_id>|<username>|<timestamp>|<recipient_ids>|<message>\n"
+
+Example:
+Client sends: "PRIVATE_CHAT:2,3:Secret message\n"
+Server sends: "PRIVATE_CHAT:0|Alice|14:30:15|2,3|Secret message\n"
+\end{lstlisting}
+
+\textbf{3. Chat History}
+When a new client connects, the server sends recent chat history:
+\begin{lstlisting}
+Server -> New Client: "CHAT_HISTORY:<serialized_history>\n"
+\end{lstlisting}
+
+The serialized history is a pickled list of chat message dictionaries.
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][5cm][c]{0.85\textwidth}{
+        \centering \textit{[PLACEHOLDER: Chat Interface Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows chat panel with message history, input field, and recipient selection}
+    }}
+    \caption{Chat interface showing group and private messages}
+    \label{fig:chat_ui}
+\end{figure}
+
+\subsection{Module 5: File Sharing Protocol}
+
+File sharing uses a dedicated TCP connection on port 5005 for reliable transfer.
+
+\subsubsection{Upload Process}
+\begin{lstlisting}[caption=File upload protocol]
+1. Client -> Server (Port 5005 TCP): Connect
+2. Client -> Server: "UPLOAD:<client_id>:<filename>:<filesize>\n"
+3. Client -> Server: <file_data in 8KB chunks>
+4. Server: Stores file in memory with assigned file_id
+5. Server -> Client: "SUCCESS:<file_id>\n"
+6. Server -> All Clients: 
+   "FILE_OFFER:<file_id>:<filename>:<size>:<uploader_name>:<uploader_id>\n"
+\end{lstlisting}
+
+\subsubsection{Download Process}
+\begin{lstlisting}[caption=File download protocol]
+1. Client -> Server (Port 5005 TCP): Connect
+2. Client -> Server: "DOWNLOAD:<file_id>\n"
+3. Server: Looks up file in shared_files dictionary
+4. Server -> Client: "FILE:<filename>:<filesize>\n"
+5. Server -> Client: <file_data in 8KB chunks using sendall()>
+6. Client: Saves to disk with QFileDialog selected location
+\end{lstlisting}
+
+\subsubsection{Delete Process}
+Only the uploader can delete their own files:
+\begin{lstlisting}[caption=File deletion with ownership verification]
+1. Client -> Server (Port 5005 TCP): Connect
+2. Client -> Server: "DELETE:<file_id>:<client_id>\n"
+3. Server: Verifies uploader_id == client_id
+4. If authorized:
+   Server -> Client: "DELETE_SUCCESS:<file_id>\n"
+   Server -> All Clients: "FILE_DELETED:<file_id>\n"
+5. If not authorized:
+   Server -> Client: "ERROR:Not authorized to delete this file\n"
+\end{lstlisting}
+
+\subsubsection{File Storage}
+Files are stored in-memory on the server with a maximum size limit of 100 MB per file. The server maintains metadata including filename, size, uploader information, and timestamp.
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][5cm][c]{0.85\textwidth}{
+        \centering \textit{[PLACEHOLDER: File Sharing Panel Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows file list with upload/download buttons and progress bars}
+    }}
+    \caption{File sharing interface}
+    \label{fig:file_ui}
+\end{figure}
+
+\section{GUI Implementation}
+
+The client application uses PyQt6 to provide a modern, responsive user interface inspired by Google Meet. \textbf{All five core functionalities are integrated into a single, unified window}, eliminating the need to switch between multiple applications.
+
+\subsection{Single-Window Design Philosophy}
+
+The application organizes all features into one cohesive interface:
+
+\begin{itemize}
+    \item \textbf{Central Video Grid}: Main viewing area for participant video feeds
+    \item \textbf{Bottom Control Bar}: Always-visible buttons for core actions (mic, camera, screen share, leave)
+    \item \textbf{Right Side Panels}: Collapsible panels for chat, files, people, and settings
+    \item \textbf{Integrated Notifications}: Desktop popups overlay on main window
+    \item \textbf{Contextual Controls}: Features accessible without leaving main window
+\end{itemize}
+
+\textbf{Design Benefits}:
+\begin{itemize}
+    \item Reduced cognitive load - users don't need to manage multiple windows
+    \item Unified state management - all features aware of session context
+    \item Efficient screen usage - maximizes video display area
+    \item Consistent user experience - familiar control patterns across features
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][6cm][c]{0.9\textwidth}{
+        \centering \textit{[PLACEHOLDER: Complete UI Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows unified interface with video grid, control bar, and open chat panel demonstrating all features in single window}
+    }}
+    \caption{Complete user interface showing all features integrated in single window}
+    \label{fig:unified_ui}
+\end{figure}
+
+\subsection{Main Window Architecture}
+
+The main window (\texttt{VideoConferenceClient}) inherits from \texttt{QMainWindow} and uses PyQt6 signals for thread-safe GUI updates:
+
+\begin{lstlisting}[language=Python, caption=PyQt6 signals for thread-safe updates]
+class VideoConferenceClient(QMainWindow):
+    # Signals for thread-safe GUI updates
+    chat_message_received = pyqtSignal(int, str, str, str)
+    user_join_signal = pyqtSignal(str)
+    user_left_signal = pyqtSignal(str)
+    screen_share_denied_signal = pyqtSignal(str)
+    # ... other signals
+\end{lstlisting}
+
+\subsection{Layout System}
+
+The video grid supports multiple layout modes for flexible viewing:
+
+\subsubsection{Tiled Layout (Grid Mode)}
+\begin{itemize}
+    \item \textbf{Auto Mode}: Automatically selects optimal grid size (1x1, 2x2, 3x3, or 4x4) based on participant count
+    \item \textbf{Manual Modes}: User can force specific grid layouts (1x1, 2x2, 3x3, 4x4)
+    \item \textbf{Dynamic Resizing}: Grid automatically adjusts when users join or leave
+    \item \textbf{Equal Sizing}: All participant video tiles have equal dimensions
+    \item \textbf{Default Mode}: Tiled layout is the default view on startup
+\end{itemize}
+
+\subsubsection{Spotlight Layout (Focus Mode)}
+\begin{itemize}
+    \item \textbf{Dedicated Display}: Large central area for featured content (screen share or main speaker)
+    \item \textbf{Side Thumbnails}: Vertical strip showing other participant thumbnails
+    \item \textbf{Automatic Activation}: Spotlight mode activates when screen sharing begins
+    \item \textbf{Seamless Switching}: Returns to tiled mode when screen sharing ends
+    \item \textbf{Screen Share Priority}: Screen share always displayed in spotlight main area
+\end{itemize}
+
+\textbf{Layout Selection}: Users can configure their preferred layout mode in the Settings panel. The layout adapts dynamically based on the number of active participants and whether screen sharing is active.
+
+\subsection{Side Panels}
+
+The interface features collapsible side panels:
+\begin{itemize}
+    \item \textbf{Chat Panel}: Message history with broadcast and private messaging
+    \item \textbf{People Panel}: Participant list with selection for private messaging
+    \item \textbf{Files Panel}: Shared files with upload/download functionality
+    \item \textbf{Settings Panel}: Audio/video device selection and layout configuration
+\end{itemize}
+
+\subsection{Notification System}
+
+Desktop notifications appear in the bottom-right corner for new chat messages, user joins/leaves, file uploads, and screen sharing changes. Notifications auto-dismiss after 4-5 seconds.
+
+\subsection{Video Rendering}
+
+Video frames are converted from OpenCV BGR format to Qt RGB format using \texttt{QImage} and \texttt{QPixmap}. The main thread updates video labels at approximately 30 FPS using a QTimer.
+
+\section{User Guide}
+
+This section provides step-by-step instructions for installing, configuring, and using the application.
+
+\subsection{System Requirements}
+
+\subsubsection{Software Requirements}
+\begin{itemize}
+    \item Python 3.8 or higher
+    \item Operating System: Windows 10/11, Linux (Ubuntu 20.04+), or macOS 10.14+
+    \item Webcam (built-in or external)
+    \item Microphone and speakers/headphones
+    \item Network: LAN connection or WiFi on the same network
+\end{itemize}
+
+\subsubsection{Python Dependencies}
+\begin{lstlisting}[language=bash, caption=requirements.txt]
+opencv-python>=4.5.0
+numpy>=1.19.0
+PyQt6>=6.0.0
+pyaudio>=0.2.11
+mss>=6.1.0
+qtawesome>=1.0.0
+\end{lstlisting}
+
+\subsection{Installation}
+
+\subsubsection{Step 1: Obtain the Project}
+Download or clone the project repository to your computer.
+
+\subsubsection{Step 2: Install Python}
+Ensure Python 3.8 or higher is installed. Download from \url{https://www.python.org/downloads/} if needed.
+
+On Windows, make sure to check "Add Python to PATH" during installation.
+
+\subsubsection{Step 3: Install Dependencies}
+Open a terminal/command prompt in the project directory and run:
+
+\textbf{Windows:}
+\begin{lstlisting}[language=bash]
+pip install -r requirements.txt
+\end{lstlisting}
+
+\textbf{Linux/macOS:}
+\begin{lstlisting}[language=bash]
+pip3 install -r requirements.txt
+
+# On Linux, you may also need:
+sudo apt-get install python3-tk
+sudo apt-get install portaudio19-dev  # for PyAudio
+\end{lstlisting}
+
+\subsubsection{Step 4: Verify Installation}
+\begin{lstlisting}[language=bash]
+python -c "import cv2, numpy, PyQt6, pyaudio, mss; print('All dependencies installed successfully!')"
+\end{lstlisting}
+
+\subsection{Starting the Application}
+
+\subsubsection{Running the Server}
+
+\textbf{Step 1: Find Server IP Address}
+
+On the computer that will act as the server, find its local IP address:
+
+\textbf{Windows:}
+\begin{lstlisting}[language=bash]
+ipconfig
+# Look for "IPv4 Address" under your active network adapter
+# Example: 192.168.1.100
+\end{lstlisting}
+
+\textbf{Linux/macOS:}
+\begin{lstlisting}[language=bash]
+ifconfig
+# or
+ip addr
+# Look for inet address under your active network interface
+\end{lstlisting}
+
+\textbf{Step 2: Start the Server}
+
+\textbf{Using the startup script (recommended):}
+\begin{lstlisting}[language=bash]
+# Windows
+start_server.bat
+
+# Linux/macOS
+chmod +x start_server.sh
+./start_server.sh
+\end{lstlisting}
+
+\textbf{Or run manually:}
+\begin{lstlisting}[language=bash]
+python src/server/server.py
+\end{lstlisting}
+
+You should see output similar to:
+\begin{lstlisting}
+[14:30:15] Server started
+[14:30:15] TCP Control Port: 5000
+[14:30:15] UDP Video Port: 5001
+[14:30:15] UDP Audio Port: 5002
+[14:30:15] TCP Screen Sharing Control Port: 5003
+[14:30:15] UDP Screen Sharing Data Port: 5004
+[14:30:15] TCP File Transfer Port: 5005
+[14:30:15] Waiting for connections...
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][4cm][c]{0.85\textwidth}{
+        \centering \textit{[PLACEHOLDER: Server Console Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows server startup messages and active connections}
+    }}
+    \caption{Server console output}
+    \label{fig:server_console}
+\end{figure}
+
+\subsubsection{Running the Client}
+
+On each computer that will participate (can include the server computer):
+
+\textbf{Step 1: Start the Client Application}
+\begin{lstlisting}[language=bash]
+# Windows
+start_client.bat
+
+# Linux/macOS
+chmod +x start_client.sh
+./start_client.sh
+
+# Or manually
+python src/client/client.py
+\end{lstlisting}
+
+\textbf{Step 2: Connect to Server}
+
+A connection dialog will appear (Figure~\ref{fig:connect_dialog}).
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][5cm][c]{0.7\textwidth}{
+        \centering \textit{[PLACEHOLDER: Connection Dialog Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows server IP input, username input, and Connect button}
+    }}
+    \caption{Client connection dialog}
+    \label{fig:connect_dialog}
+\end{figure}
+
+Enter the following information:
+\begin{itemize}
+    \item \textbf{Server IP}: The IP address of the server (e.g., 192.168.1.100)
+    \begin{itemize}
+        \item Use \texttt{127.0.0.1} or \texttt{localhost} if running on the same computer as the server
+    \end{itemize}
+    \item \textbf{Username}: Your desired username (must be unique)
+\end{itemize}
+
+Click the "Connect" button.
+
+\subsection{Using the Application}
+
+Once connected, the main application window opens (Figure~\ref{fig:main_window}).
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][7cm][c]{0.9\textwidth}{
+        \centering \textit{[PLACEHOLDER: Main Application Window Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows video grid, control bar at bottom, and side panels}
+    }}
+    \caption{Main application interface}
+    \label{fig:main_window}
+\end{figure}
+
+\subsubsection{Video Grid Layout}
+
+The main viewing area displays video feeds in a grid layout:
+\begin{itemize}
+    \item \textbf{Auto Layout}: Automatically adjusts grid size (1x1, 2x2, 3x3, etc.) based on number of participants
+    \item \textbf{Manual Layout}: Select fixed grid size from the settings menu
+    \item \textbf{Self Video}: Your own video feed can be toggled on/off
+    \item \textbf{Username Labels}: Each video tile displays the participant's username
+\end{itemize}
+
+\subsubsection{Control Bar}
+
+The control bar at the bottom provides quick access to features:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|p{10cm}|}
+\hline
+\textbf{Button} & \textbf{Function} \\
+\hline
+Camera & Toggle your webcam on/off \\
+\hline
+Microphone & Mute/unmute your microphone \\
+\hline
+Speaker & Mute/unmute audio output \\
+\hline
+Chat & Open/close the chat panel \\
+\hline
+People & Open/close the participants panel \\
+\hline
+Files & Open/close the file sharing panel \\
+\hline
+Present Screen & Start/stop screen sharing \\
+\hline
+Settings & Open audio/video device settings \\
+\hline
+Leave & Disconnect from the conference \\
+\hline
+\end{tabular}
+\caption{Control bar buttons}
+\label{tab:controls}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][2cm][c]{0.85\textwidth}{
+        \centering \textit{[PLACEHOLDER: Control Bar Screenshot]} \\
+        \vspace{0.5cm}
+        \small{Shows all control buttons with icons}
+    }}
+    \caption{Control bar with feature buttons}
+    \label{fig:control_bar}
+\end{figure}
+
+\subsubsection{Chat Feature}
+
+\textbf{Opening Chat:}
+Click the "Chat" button in the control bar to open the chat panel on the right side.
+
+\textbf{Sending Messages:}
+\begin{enumerate}
+    \item Type your message in the text input field at the bottom of the chat panel
+    \item Press Enter or click the Send button
+    \item Your message appears in the chat history with your username and timestamp
+\end{enumerate}
+
+\textbf{Private Messaging:}
+\begin{enumerate}
+    \item Open the "People" panel
+    \item Select one or more recipients by clicking their names
+    \item Type your message in the chat input
+    \item Your message is sent only to the selected recipients
+    \item Private messages are indicated with a lock icon
+\end{enumerate}
+
+\textbf{Chat Features:}
+\begin{itemize}
+    \item Message history persists during your session
+    \item New users receive recent chat history upon joining
+    \item Timestamps are displayed for each message
+    \item System messages notify you of user joins/leaves
+    \item Desktop notifications for new messages (when chat panel is closed)
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][6cm][c]{0.7\textwidth}{
+        \centering \textit{[PLACEHOLDER: Chat Panel Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows chat history with timestamps, message input, and send button}
+    }}
+    \caption{Chat panel interface}
+    \label{fig:chat_panel}
+\end{figure}
+
+\subsubsection{Screen Sharing}
+
+\textbf{Starting Screen Share:}
+\begin{enumerate}
+    \item Click the "Present Screen" button in the control bar
+    \item \textbf{Mutual Exclusion Check}: Server verifies no other user is currently presenting
+    \item \textbf{If someone is already presenting}:
+    \begin{itemize}
+        \item Warning dialog appears: "\textit{[Presenter Name] is currently presenting}"
+        \item Informative message: "Only one user can share their screen at a time. Please wait until they finish."
+        \item Screen share button automatically reverts to unchecked state
+        \item You cannot start presenting until the current presenter stops
+    \end{itemize}
+    \item \textbf{If no one is presenting}:
+    \begin{itemize}
+        \item Your screen share starts immediately
+        \item Your video feed is replaced by your screen in other participants' views
+        \item \textbf{Layout switches to Spotlight mode} for all participants
+        \item Button changes to "Stop Presenting" with red indicator
+        \item Desktop notification sent to all other participants
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Stopping Screen Share:}
+\begin{enumerate}
+    \item Click the "Stop Presenting" button
+    \item Your video feed resumes in other participants' views
+    \item \textbf{Layout returns to Tiled mode} (or user's preferred layout)
+    \item Server releases presenter slot, allowing others to present
+    \item Desktop notification sent to all participants
+\end{enumerate}
+
+\textbf{Viewing Shared Screen:}
+\begin{itemize}
+    \item When another participant shares their screen, it replaces their video feed in your grid
+    \item \textbf{Automatic layout switch}: Interface changes to Spotlight mode with screen in large main area
+    \item The username label indicates who is presenting
+    \item Screen updates at 10 FPS for smooth viewing (960x540 resolution, JPEG 50\% quality)
+    \item \textbf{Desktop notification}: "User X started screen sharing"
+    \item You can still use chat and other features while viewing a shared screen
+    \item Other participant videos appear as thumbnails in the side panel (Spotlight mode)
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][6cm][c]{0.85\textwidth}{
+        \centering \textit{[PLACEHOLDER: Screen Sharing View Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows a participant's shared screen displayed in the video grid}
+    }}
+    \caption{Screen sharing in progress}
+    \label{fig:screen_share}
+\end{figure}
+
+\subsubsection{File Sharing}
+
+\textbf{Uploading Files:}
+\begin{enumerate}
+    \item Click the "Files" button to open the file sharing panel
+    \item Click the "Upload File" button
+    \item Select a file from your computer (max 100 MB)
+    \item A progress bar shows the upload progress
+    \item Once uploaded, the file appears in everyone's file list
+\end{enumerate}
+
+\textbf{Downloading Files:}
+\begin{enumerate}
+    \item Open the file sharing panel
+    \item Click the "Download" button next to the desired file
+    \item Select where to save the file on your computer
+    \item A progress bar shows the download progress
+    \item The file is saved to your selected location
+\end{enumerate}
+
+\textbf{Deleting Files:}
+\begin{itemize}
+    \item You can only delete files that you uploaded
+    \item Click the "Delete" button next to your file
+    \item The file is removed from all participants' lists
+\end{itemize}
+
+\textbf{File Information Displayed:}
+\begin{itemize}
+    \item Filename
+    \item File size (formatted as KB/MB)
+    \item Uploader's name
+    \item Upload timestamp
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][6cm][c]{0.7\textwidth}{
+        \centering \textit{[PLACEHOLDER: File Sharing Panel Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows file list with upload/download/delete buttons and progress bars}
+    }}
+    \caption{File sharing panel}
+    \label{fig:file_panel}
+\end{figure}
+
+\subsubsection{Audio/Video Settings}
+
+\textbf{Accessing Settings:}
+Click the "Settings" button in the control bar to open the settings panel.
+
+\textbf{Available Settings:}
+\begin{itemize}
+    \item \textbf{Microphone Selection}: Choose your audio input device from available system microphones
+    \item \textbf{Speaker Selection}: Choose your audio output device from available system speakers/headphones
+    \item \textbf{Camera Selection}: Choose your video input device (if multiple cameras available)
+    \item \textbf{Layout Mode}: Select grid layout preference:
+    \begin{itemize}
+        \item \textit{Auto}: Automatically adjusts grid size based on participant count
+        \item \textit{1x1}: Single large video tile
+        \item \textit{2x2}: Four video tiles in 2x2 grid
+        \item \textit{3x3}: Nine video tiles in 3x3 grid
+        \item \textit{4x4}: Sixteen video tiles in 4x4 grid
+        \item \textit{Spotlight}: Large main area with side thumbnails (auto-activates during screen sharing)
+    \end{itemize}
+    \item \textbf{Show Self Video}: Toggle visibility of your own video in the grid
+\end{itemize}
+
+\textbf{Device Enumeration}: The application automatically detects all available audio/video devices on your system using PyAudio and OpenCV device enumeration. Changes to device selection take effect immediately without requiring a restart.
+
+Changes to audio/video devices take effect immediately.
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][5cm][c]{0.7\textwidth}{
+        \centering \textit{[PLACEHOLDER: Settings Panel Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows audio/video device dropdowns and layout options}
+    }}
+    \caption{Settings panel}
+    \label{fig:settings}
+\end{figure}
+
+\subsubsection{People Panel}
+
+The People panel shows all connected participants:
+\begin{itemize}
+    \item List of all usernames
+    \item Selection checkboxes for private messaging
+    \item Online status indicators
+    \item Participant count
+\end{itemize}
+
+Click on names to select recipients for private messages.
+
+\begin{figure}[H]
+    \centering
+    \framebox{\parbox[c][5cm][c]{0.6\textwidth}{
+        \centering \textit{[PLACEHOLDER: People Panel Screenshot]} \\
+        \vspace{1cm}
+        \small{Shows list of participants with selection checkboxes}
+    }}
+    \caption{People panel showing participants}
+    \label{fig:people_panel}
+\end{figure}
+
+\subsection{Disconnecting}
+
+To leave the conference:
+\begin{enumerate}
+    \item Click the "Leave" button in the control bar, or
+    \item Close the application window
+    \item The server automatically detects the disconnection
+    \item Other participants are notified of your departure
+    \item Your video feed is removed from their grids
+\end{enumerate}
+
+\section{Troubleshooting}
+
+\subsection{Connection Issues}
+
+\textbf{Problem}: Cannot connect to server
+
+\textbf{Solutions}:
+\begin{itemize}
+    \item Verify the server is running and showing "Waiting for connections..."
+    \item Confirm the server IP address is correct
+    \item Ensure both computers are on the same network
+    \item Check firewall settings (allow ports 5000-5005)
+    \item Try pinging the server: \texttt{ping <server\_ip>}
+\end{itemize}
+
+\subsection{Camera Issues}
+
+\textbf{Problem}: Webcam not working
+
+\textbf{Solutions}:
+\begin{itemize}
+    \item Check camera permissions in your operating system
+    \item Ensure no other application is using the camera
+    \item Try selecting a different camera in Settings
+    \item Restart the application
+    \item On Linux, verify you have proper permissions: \texttt{sudo usermod -aG video \$USER}
+\end{itemize}
+
+\subsection{Audio Issues}
+
+\textbf{Problem}: No audio or echo/feedback
+
+\textbf{Solutions}:
+\begin{itemize}
+    \item Check microphone and speaker are properly connected
+    \item Verify audio devices in Settings panel
+    \item Use headphones to prevent echo/feedback
+    \item Check system audio settings and levels
+    \item Ensure PyAudio is properly installed
+    \item On Linux, you may need to install: \texttt{sudo apt-get install portaudio19-dev}
+\end{itemize}
+
+\subsection{Screen Sharing Issues}
+
+\textbf{Problem}: Cannot start screen sharing
+
+\textbf{Solutions}:
+\begin{itemize}
+    \item Only one person can present at a time - wait for current presenter to stop
+    \item Check screen sharing permissions on macOS (System Preferences > Security \& Privacy > Screen Recording)
+    \item Restart the application if the presenter slot is stuck
+\end{itemize}
+
+\subsection{File Transfer Issues}
+
+\textbf{Problem}: File upload/download fails
+
+\textbf{Solutions}:
+\begin{itemize}
+    \item Ensure file is under 100 MB limit
+    \item Check available disk space
+    \item Verify network connection is stable
+    \item Check file permissions (read for upload, write for download location)
+\end{itemize}
+
+\subsection{Performance Issues}
+
+\textbf{Problem}: Laggy video or choppy audio
+
+\textbf{Solutions}:
+\begin{itemize}
+    \item Ensure good network connection (use wired Ethernet if possible)
+    \item Close other bandwidth-intensive applications
+    \item Reduce number of participants if possible
+    \item Check CPU usage - close other applications
+    \item Lower video quality (modify \texttt{VIDEO\_QUALITY} in \texttt{config.py})
+\end{itemize}
+
+\section{Technical Specifications Summary}
+
+\subsection{Network Specifications}
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Parameter} & \textbf{Value} \\
+\hline
+Maximum Users & 10 concurrent users \\
+\hline
+Video Bandwidth & ~12 Mbps per user (640x480 @ 30fps, 60\% JPEG) \\
+\hline
+Audio Bandwidth & ~0.7 Mbps per user (44.1kHz, 16-bit mono) \\
+\hline
+Screen Bandwidth & ~2-4 Mbps (960x540 @ 10fps, 50\% JPEG) \\
+\hline
+Control Overhead & < 100 Kbps \\
+\hline
+Heartbeat Interval & 5 seconds \\
+\hline
+\end{tabular}
+\caption{Network specifications}
+\label{tab:network_specs}
+\end{table}
+
+\subsection{Media Specifications}
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Media Type} & \textbf{Parameter} & \textbf{Value} \\
+\hline
+\multirow{4}{*}{Video} & Resolution & 640x480 pixels \\
+& Frame Rate & 30 FPS \\
+& Compression & JPEG 60\% \\
+& Average Frame Size & 50 KB \\
+\hline
+\multirow{4}{*}{Audio} & Sample Rate & 44,100 Hz \\
+& Channels & Mono (1) \\
+& Bit Depth & 16-bit PCM \\
+& Chunk Size & 1,024 samples (23ms) \\
+\hline
+\multirow{4}{*}{Screen} & Resolution & 960x540 pixels \\
+& Frame Rate & 10 FPS \\
+& Compression & JPEG 50\% \\
+& Average Frame Size & 30-40 KB \\
+\hline
+\end{tabular}
+\caption{Media specifications}
+\label{tab:media_specs}
+\end{table}
+
+\section{Platform Support and Compatibility}
+
+\subsection{Supported Operating Systems}
+
+The application is designed to be cross-platform and has been tested on:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Operating System} & \textbf{Version} & \textbf{Status} \\
+\hline
+Windows & 10, 11 & Fully Supported \\
+\hline
+Linux & Ubuntu 20.04+, Debian 11+ & Fully Supported \\
+\hline
+macOS & 10.14 (Mojave) or higher & Fully Supported \\
+\hline
+\end{tabular}
+\caption{Platform compatibility}
+\label{tab:platforms}
+\end{table}
+
+\subsection{Platform-Specific Considerations}
+
+\subsubsection{Windows}
+\begin{itemize}
+    \item \textbf{Python Installation}: Ensure "Add Python to PATH" is checked during installation
+    \item \textbf{Firewall}: May need to allow Python through Windows Firewall for ports 5000-5005
+    \item \textbf{Audio}: PyAudio typically works out-of-the-box with Windows audio drivers
+    \item \textbf{Executables}: Can be packaged using PyInstaller for standalone \texttt{.exe} files
+\end{itemize}
+
+\subsubsection{Linux}
+\begin{itemize}
+    \item \textbf{Dependencies}: May need to install \texttt{python3-tk}, \texttt{portaudio19-dev}, and \texttt{python3-dev}
+    \item \textbf{Permissions}: Camera/microphone access may require user in \texttt{video} and \texttt{audio} groups
+    \item \textbf{Package Manager}: Use \texttt{apt}, \texttt{dnf}, or \texttt{pacman} depending on distribution
+    \item \textbf{Executables}: Can be packaged using PyInstaller for standalone binaries
+\end{itemize}
+
+\subsubsection{macOS}
+\begin{itemize}
+    \item \textbf{Python Version}: Use Python 3.8+ from python.org or Homebrew
+    \item \textbf{Permissions}: Requires granting Camera, Microphone, and Screen Recording permissions in System Preferences > Security \& Privacy
+    \item \textbf{PyAudio Installation}: May require \texttt{brew install portaudio} before \texttt{pip install pyaudio}
+    \item \textbf{Executables}: Can be packaged as \texttt{.app} bundles using PyInstaller
+\end{itemize}
+
+\subsection{Network Requirements}
+
+\begin{itemize}
+    \item \textbf{LAN Connectivity}: All devices must be on the same local network
+    \item \textbf{No Internet Required}: Application functions completely offline
+    \item \textbf{IP Configuration}: Static IP for server recommended; DHCP acceptable if IP noted
+    \item \textbf{Firewall Rules}: Ports 5000-5005 must be accessible between client and server
+    \item \textbf{Bandwidth}: Minimum 15 Mbps per user recommended for optimal experience
+    \item \textbf{Latency}: LAN latency typically <10ms; wireless acceptable but wired Ethernet preferred
+\end{itemize}
+
+\section{Project Deliverables}
+
+This project includes the following complete deliverables:
+
+\subsection{1. Server Application}
+
+\textbf{File}: \texttt{src/server/server.py}
+
+\textbf{Description}: A standalone Python application that can be executed on any machine in the LAN to host the communication session.
+
+\textbf{Features}:
+\begin{itemize}
+    \item Accepts connections from up to 10 clients simultaneously
+    \item Manages all media stream broadcasting (video, audio, screen)
+    \item Handles chat message relay and file storage
+    \item Implements session management with graceful join/leave
+    \item Provides console logging of all server activities
+\end{itemize}
+
+\textbf{Execution}:
+\begin{lstlisting}[language=bash]
+python src/server/server.py
+# Or use provided scripts: start_server.bat / start_server.sh
+\end{lstlisting}
+
+\textbf{Packaging}: Can be compiled to standalone executable using PyInstaller:
+\begin{lstlisting}[language=bash]
+pyinstaller build_server.spec
+# Generates: dist/server.exe (Windows) or dist/server (Linux/macOS)
+\end{lstlisting}
+
+\subsection{2. Client Application}
+
+\textbf{File}: \texttt{src/client/client.py}
+
+\textbf{Description}: A standalone Python application with PyQt6 GUI that users run to connect to the server and participate in the session.
+
+\textbf{Features}:
+\begin{itemize}
+    \item Modern, intuitive graphical user interface
+    \item All five core modules integrated in single window
+    \item Connection dialog for server IP and username entry
+    \item Real-time video grid showing all participants
+    \item Audio/video device selection and configuration
+    \item Chat, file sharing, and screen sharing controls
+\end{itemize}
+
+\textbf{Execution}:
+\begin{lstlisting}[language=bash]
+python src/client/client.py
+# Or use provided scripts: start_client.bat / start_client.sh
+\end{lstlisting}
+
+\textbf{Packaging}: Can be compiled to standalone executable using PyInstaller:
+\begin{lstlisting}[language=bash]
+pyinstaller build_client.spec
+# Generates: dist/client.exe (Windows) or dist/client (Linux/macOS)
+\end{lstlisting}
+
+\subsection{3. Source Code}
+
+\textbf{Files}: Complete source code in \texttt{src/} directory
+
+\textbf{Structure}:
+\begin{verbatim}
+src/
+|-- client/
+|   |-- __init__.py
+|   +-- client.py          # Client application (4172 lines)
+|-- server/
+|   |-- __init__.py
+|   +-- server.py          # Server application (934 lines)
++-- common/
+    |-- __init__.py
+    +-- config.py          # Shared configuration
+\end{verbatim}
+
+\textbf{Code Quality}:
+\begin{itemize}
+    \item \textbf{Fully Commented}: Comprehensive docstrings and inline comments
+    \item \textbf{Type Hints}: Function signatures include parameter and return types
+    \item \textbf{Error Handling}: Try-except blocks for robust error management
+    \item \textbf{Modular Design}: Clear separation of concerns and responsibilities
+    \item \textbf{Thread-Safe}: Proper use of locks for concurrent data access
+\end{itemize}
+
+\subsection{4. Configuration Files}
+
+\textbf{Build Scripts}:
+\begin{itemize}
+    \item \texttt{build\_server.spec}: PyInstaller specification for server
+    \item \texttt{build\_client.spec}: PyInstaller specification for client
+    \item \texttt{build\_server.bat/sh}: Automated build scripts for server
+    \item \texttt{build\_client.bat/sh}: Automated build scripts for client
+\end{itemize}
+
+\textbf{Startup Scripts}:
+\begin{itemize}
+    \item \texttt{start\_server.bat/sh}: Convenient server launcher
+    \item \texttt{start\_client.bat/sh}: Convenient client launcher
+\end{itemize}
+
+\textbf{Dependencies}:
+\begin{itemize}
+    \item \texttt{requirements.txt}: Python package dependencies with version constraints
+\end{itemize}
+
+\subsection{5. Documentation}
+
+\textbf{Technical Documentation} (this document): \texttt{docs/technical\_documentation.tex}
+\begin{itemize}
+    \item System architecture and design rationale
+    \item Detailed communication protocol specifications
+    \item Implementation details for all five modules
+    \item Session management and threading model
+    \item Platform support and compatibility
+    \item Complete user guide for setup and usage
+\end{itemize}
+
+\textbf{Additional Documentation} in \texttt{docs/}:
+\begin{itemize}
+    \item \texttt{ARCHITECTURE.md}: System architecture diagrams and flow charts
+    \item \texttt{MODULE1\_SUMMARY.md}: Video conferencing implementation
+    \item \texttt{MODULE2\_SUMMARY.md}: Audio conferencing implementation
+    \item \texttt{MODULE3\_SCREEN\_SHARING.md}: Screen sharing details
+    \item \texttt{MODULE4\_GROUP\_CHAT.md}: Chat system implementation
+    \item \texttt{MODULE5\_FILE\_SHARING.md}: File transfer system
+    \item \texttt{INSTALLATION\_AND\_TESTING.md}: Setup and testing procedures
+    \item \texttt{QUICKSTART.md}: Quick reference guide
+\end{itemize}
+
+\subsection{6. Build Artifacts}
+
+When built using PyInstaller, the project generates:
+
+\textbf{Server Executable}:
+\begin{itemize}
+    \item \texttt{dist/server.exe} (Windows) or \texttt{dist/server} (Linux/macOS)
+    \item Standalone, no Python installation required
+    \item Includes all dependencies bundled
+    \item Size: ~150-200 MB
+\end{itemize}
+
+\textbf{Client Executable}:
+\begin{itemize}
+    \item \texttt{dist/client.exe} (Windows) or \texttt{dist/client} (Linux/macOS)
+    \item Standalone, no Python installation required
+    \item Includes PyQt6 GUI framework and all media libraries
+    \item Size: ~200-250 MB
+\end{itemize}
+
+\section{Conclusion}
+
+This LAN Multi-User Communication Application provides a comprehensive platform for real-time collaboration over local networks. By leveraging both TCP and UDP protocols, it delivers reliable control messaging alongside low-latency media streaming. The modular architecture allows for easy extension and customization, while the PyQt6-based user interface makes it accessible to users of all technical levels.
+
+\subsection{Key Implementation Highlights}
+
+\subsubsection{Networking}
+\begin{itemize}
+    \item \textbf{Hybrid TCP/UDP Architecture}: Uses TCP for reliable control messages and file transfers, UDP for low-latency media streaming
+    \item \textbf{Multi-Port Design}: Separates different services across ports 5000-5005 for clear protocol separation
+    \item \textbf{Server-Side Mixing}: Audio mixing on server prevents echo and reduces client-side processing
+    \item \textbf{Thread-Safe Broadcasting}: Uses locks (\texttt{clients\_lock}, \texttt{frames\_lock}, etc.) for concurrent access to shared data
+\end{itemize}
+
+\subsubsection{Media Processing}
+\begin{itemize}
+    \item \textbf{JPEG Compression}: Balances quality and bandwidth with 60\% for video, 50\% for screen sharing
+    \item \textbf{Noise Gate}: Client-side RMS threshold (> 100) prevents echo by filtering quiet audio
+    \item \textbf{Jitter Buffer}: Queue-based audio buffering (20 frames max, 5 frame prebuffer) for smooth playback
+    \item \textbf{Dynamic Packet Sizing}: Screen sharing automatically reduces quality if packets exceed UDP limits
+\end{itemize}
+
+\subsubsection{Concurrency}
+\begin{itemize}
+    \item \textbf{Server Threads}: 6 main threads (TCP acceptor, UDP video, UDP audio, screen control, screen UDP, file transfer) plus per-client handlers
+    \item \textbf{Client Threads}: 10+ threads for capture, transmission, reception, playback, and GUI updates
+    \item \textbf{PyQt6 Signals}: Thread-safe GUI updates using Qt's signal/slot mechanism
+    \item \textbf{Daemon Threads}: Background threads automatically terminate when main thread exits
+\end{itemize}
+
+\subsubsection{User Experience}
+\begin{itemize}
+    \item \textbf{Auto Layout}: Grid automatically adjusts (1x1 to 4x4) based on participant count
+    \item \textbf{Desktop Notifications}: Bottom-right popups for chat messages, user joins/leaves, file uploads
+    \item \textbf{Private Messaging}: Multi-recipient selection with visual indicators
+    \item \textbf{Material Design Icons}: Modern icon set using QtAwesome (with emoji fallback)
+    \item \textbf{Responsive Panels}: Smooth slide-in/out animations for side panels
+\end{itemize}
+
+\subsection{Networking Concepts Demonstrated}
+
+The application demonstrates practical implementation of:
+\begin{itemize}
+    \item \textbf{Client-Server Architecture}: Star topology with centralized control
+    \item \textbf{TCP Reliability}: Connection management, heartbeat mechanism, message framing
+    \item \textbf{UDP Real-Time Streaming}: Low-latency video/audio with acceptable packet loss
+    \item \textbf{Multi-Threading}: Concurrent socket I/O without blocking
+    \item \textbf{Protocol Design}: Custom binary and text-based protocols over sockets
+    \item \textbf{Network Programming}: Socket creation, binding, listening, accepting, connecting
+    \item \textbf{Data Serialization}: Pickle for structured data, struct for binary packing
+    \item \textbf{Resource Management}: Proper socket cleanup, connection pooling, memory management
+\end{itemize}
+
+\subsection{Performance Characteristics}
+
+\textbf{Latency}:
+\begin{itemize}
+    \item Video: ~100-200ms (capture + compression + network + decode + display)
+    \item Audio: ~50-100ms (capture + network + mixing + playback)
+    \item Screen: ~200-300ms (lower FPS acceptable for screen sharing)
+\end{itemize}
+
+\textbf{Bandwidth (per user)}:
+\begin{itemize}
+    \item Upstream: ~13 Mbps (12 Mbps video + 0.7 Mbps audio + overhead)
+    \item Downstream: ~13 Mbps × (n-1) users (server broadcasts to all)
+\end{itemize}
+
+\textbf{Scalability}:
+\begin{itemize}
+    \item Current limit: 10 users (configurable in \texttt{MAX\_USERS})
+    \item Server bottleneck: CPU for mixing, memory for buffering, bandwidth for broadcasting
+    \item Potential improvements: Use multicast for video, optimize mixing with SIMD, implement SFU architecture
+\end{itemize}
+
+\subsection{Future Enhancements}
+
+Potential extensions include:
+\begin{itemize}
+    \item \textbf{Recording}: Save conference video/audio to file
+    \item \textbf{Virtual Backgrounds}: Background blur or replacement using computer vision
+    \item \textbf{Encryption}: TLS for TCP, DTLS for UDP to secure communication
+    \item \textbf{Scalability}: Selective Forwarding Unit (SFU) architecture for larger conferences
+    \item \textbf{Codec Upgrade}: H.264/VP8 video, Opus audio for better compression
+    \item \textbf{Quality Adaptation}: Automatic bitrate adjustment based on network conditions
+    \item \textbf{Screen Annotation}: Drawing tools for presenter during screen sharing
+    \item \textbf{Breakout Rooms}: Multiple sub-conferences within same server
+\end{itemize}
+
+\subsection{Academic Value}
+
+This project serves as an excellent learning platform for:
+\begin{itemize}
+    \item Understanding client-server networking fundamentals
+    \item Practical experience with TCP and UDP protocols
+    \item Real-time systems programming and multi-threading
+    \item Media processing and compression techniques
+    \item GUI development with modern frameworks
+    \item Software architecture and design patterns
+\end{itemize}
+
+The clean separation of concerns (network layer, media layer, GUI layer) makes it suitable for educational use and further experimentation.
+
+\end{document}
