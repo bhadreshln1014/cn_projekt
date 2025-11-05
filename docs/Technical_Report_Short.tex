@@ -60,11 +60,11 @@
     {\Large Computer Networks Project Report}\\[3cm]
     
     {\large\textbf{Submitted by:}}\\[0.5cm]
-    {\large [Student Name]}\\
-    {\large Roll No: [Roll Number]}\\[2cm]
+    {\large Bhadresh L (CS23I1014)} \\
+    {\large Santhana Srinivasan R (CS23I1065)}\\[0.5cm]
     
     {\large\textbf{Course Instructor:}}\\[0.5cm]
-    {\large [Professor Name]}\\[3cm]
+    {\large Dr. Sanjeet Kumar Nayak}\\[3cm]
     
     {\large \today}
     
@@ -601,8 +601,9 @@ SCREEN\_FRAME:data & UDP & Screen frame data \\
 
 \subsection{Install Python Dependencies}
 \begin{verbatim}
-pip install PyQt6 opencv-python pyaudio numpy mss pillow
+pip install -r requirements.txt
 \end{verbatim}
+
 
 \subsection{Run Server}
 \begin{verbatim}
@@ -615,6 +616,8 @@ python src/server/server.py
 python src/client/client.py
 # Enter server IP and username in connection dialog
 \end{verbatim}
+
+Alternatively, you could build the client and server and run the executables (i.e., the ones we have submitted)
 
 \section{Quick Start Guide}
 
@@ -671,14 +674,7 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.9\textwidth}{\centering
-        \vspace{4cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Main Application Window\\
-        Showing video grid, control bar, and side panel with chat/people/files tabs\\
-        \vspace{4cm}
-    }}
+    \includegraphics[width=0.9\textwidth]{../screenshots/MainApplicationWindow.jpg}
     \caption{Main Application Interface}
     \label{fig:main-interface}
 \end{figure}
@@ -687,15 +683,8 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.6\textwidth}{\centering
-        \vspace{2cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Connection Dialog\\
-        Server IP, port, and username input fields\\
-        \vspace{2cm}
-    }}
-    \caption{Connection Dialog}
+    \includegraphics[width=0.6\textwidth]{../screenshots/JoiningWindow.jpg}
+    \caption{Joining Window (Server IP and Username Entry)}
     \label{fig:connection-dialog}
 \end{figure}
 
@@ -703,15 +692,8 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.9\textwidth}{\centering
-        \vspace{3.5cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Active Video Conference\\
-        Multiple participant video feeds displayed in dynamic grid layout\\
-        \vspace{3.5cm}
-    }}
-    \caption{Video Conference with Multiple Participants}
+    \includegraphics[width=0.9\textwidth]{../screenshots/TiledLayout.jpg}
+    \caption{Video Conference with Multiple Participants in Tiled Layout}
     \label{fig:video-conference}
 \end{figure}
 
@@ -719,31 +701,23 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.9\textwidth}{\centering
-        \vspace{3.5cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Screen Sharing View\\
-        Presenter's screen being shared with all participants\\
-        \vspace{3.5cm}
-    }}
-    \caption{Screen Sharing in Progress}
-    \label{fig:screen-sharing}
+    \includegraphics[width=0.9\textwidth]{../screenshots/TiledLayoutWithScreenShare.jpg}
+    \caption{Screen Sharing in Tiled Layout View}
+    \label{fig:screen-sharing-tiled}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../screenshots/SpotlightWithScreenShare.jpg}
+    \caption{Screen Sharing in Spotlight Layout View}
+    \label{fig:screen-sharing-spotlight}
 \end{figure}
 
 \section{Chat Interface}
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.7\textwidth}{\centering
-        \vspace{3cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Chat Panel\\
-        Group messages and private messages with timestamps\\
-        Private messages indicated with [LOCK] icon\\
-        \vspace{3cm}
-    }}
+    \includegraphics[width=0.7\textwidth]{../screenshots/ChatWindow.jpg}
     \caption{Chat Interface}
     \label{fig:chat-interface}
 \end{figure}
@@ -752,15 +726,7 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.6\textwidth}{\centering
-        \vspace{2.5cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        People/Participants Panel\\
-        List of connected users with online status indicators\\
-        Video/audio status and private message buttons\\
-        \vspace{2.5cm}
-    }}
+    \includegraphics[width=0.6\textwidth]{../screenshots/Participants.jpg}
     \caption{Participants Panel}
     \label{fig:participants-panel}
 \end{figure}
@@ -769,32 +735,23 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.7\textwidth}{\centering
-        \vspace{3cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        File Sharing Panel\\
-        List of shared files with metadata (name, size, uploader)\\
-        Upload and download buttons with progress tracking\\
-        \vspace{3cm}
-    }}
-    \caption{File Sharing Panel}
+    \includegraphics[width=0.7\textwidth]{../screenshots/FilePicker.jpg}
+    \caption{File Sharing Panel with File Picker}
     \label{fig:file-sharing}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{../screenshots/DeleteOwnUploadWarning.jpg}
+    \caption{Delete File Warning Dialog}
+    \label{fig:delete-file-warning}
 \end{figure}
 
 \section{Settings Panel}
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.8\textwidth}{\centering
-        \vspace{3cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Settings Panel\\
-        Configuration options for video quality, audio settings,\\
-        screen sharing parameters, and file transfer limits\\
-        \vspace{3cm}
-    }}
+    \includegraphics[width=0.8\textwidth]{../screenshots/Settings.jpg}
     \caption{Settings Panel}
     \label{fig:settings-panel}
 \end{figure}
@@ -803,32 +760,30 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.8\textwidth}{\centering
-        \vspace{2.5cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Notification System\\
-        User join/leave notifications and chat message alerts\\
-        Displayed as toast notifications with user status updates\\
-        \vspace{2.5cm}
-    }}
-    \caption{Notification System (Join/Leave and Chat Alerts)}
-    \label{fig:notifications}
+    \includegraphics[width=0.8\textwidth]{../screenshots/JoinNotif.jpg}
+    \caption{User Join Notification}
+    \label{fig:join-notification}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../screenshots/LeaveNotif.jpg}
+    \caption{User Leave Notification}
+    \label{fig:leave-notification}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{../screenshots/ChatNotif.jpg}
+    \caption{Chat Message Notification}
+    \label{fig:chat-notification}
 \end{figure}
 
 \section{Private Chat}
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.7\textwidth}{\centering
-        \vspace{3cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Private Chat Interface\\
-        One-on-one private messaging with individual participants\\
-        Showing private message thread with [LOCK] icon indicator\\
-        \vspace{3cm}
-    }}
+    \includegraphics[width=0.7\textwidth]{../screenshots/PrivateChatExample.jpg}
     \caption{Private Chat to Individual Users}
     \label{fig:private-chat}
 \end{figure}
@@ -837,47 +792,30 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.9\textwidth}{\centering
-        \vspace{3.5cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Tiled Layout Mode\\
-        Grid view with equal-sized video tiles for all participants\\
-        Dynamic grid sizing (1x1, 2x2, 3x3, 4x3 based on participant count)\\
-        \vspace{3.5cm}
-    }}
+    \includegraphics[width=0.9\textwidth]{../screenshots/TiledLayout.jpg}
     \caption{Tiled Layout View}
     \label{fig:tiled-layout}
 \end{figure}
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.9\textwidth}{\centering
-        \vspace{3.5cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Spotlight Layout Mode\\
-        Main speaker video in large view with thumbnails of other participants\\
-        Active speaker automatically highlighted in spotlight\\
-        \vspace{3.5cm}
-    }}
+    \includegraphics[width=0.9\textwidth]{../screenshots/SpotlightWithScreenShare.jpg}
     \caption{Spotlight Layout View}
     \label{fig:spotlight-layout}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.6\textwidth]{../screenshots/LayoutOptions.jpg}
+    \caption{Layout Selection Options}
+    \label{fig:layout-options}
 \end{figure}
 
 \section{Connection Dialog}
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.6\textwidth}{\centering
-        \vspace{2.5cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Joining Window\\
-        Server IP address and username input fields\\
-        Port configuration and Connect button\\
-        \vspace{2.5cm}
-    }}
+    \includegraphics[width=0.6\textwidth]{../screenshots/JoiningWindow.jpg}
     \caption{Joining Window (Server IP and Username Entry)}
     \label{fig:joining-window}
 \end{figure}
@@ -886,16 +824,7 @@ python src/client/client.py
 
 \begin{figure}[H]
     \centering
-    \fbox{\parbox{0.7\textwidth}{\centering
-        \vspace{2cm}
-        \textbf{[SCREENSHOT PLACEHOLDER]}\\
-        \vspace{0.5cm}
-        Screen Share Conflict Warning\\
-        Warning dialog displayed when attempting to share screen\\
-        while another user is already presenting\\
-        Message: "Screen sharing in progress by [Username]. Please wait."\\
-        \vspace{2cm}
-    }}
+    \includegraphics[width=0.7\textwidth]{../screenshots/ScreenShareUnavailable.jpg}
     \caption{Screen Share Conflict Warning Dialog}
     \label{fig:screenshare-warning}
 \end{figure}
@@ -996,29 +925,5 @@ The implementation showcases practical applications of computer networks concept
     \item Concurrent programming
     \item Real-time system design
 \end{itemize}
-
-% ============================================================================
-% REFERENCES
-% ============================================================================
-\chapter*{References}
-\addcontentsline{toc}{chapter}{References}
-
-\begin{enumerate}[itemsep=10pt]
-    \item Python Software Foundation. (2024). \textit{Python Documentation}. \url{https://docs.python.org/3/}
-    
-    \item Riverbank Computing. (2024). \textit{PyQt6 Documentation}. \url{https://www.riverbankcomputing.com/static/Docs/PyQt6/}
-    
-    \item OpenCV Team. (2024). \textit{OpenCV Python Documentation}. \url{https://docs.opencv.org/}
-    
-    \item PyAudio Contributors. (2024). \textit{PyAudio Documentation}. \url{https://people.csail.mit.edu/hubert/pyaudio/}
-    
-    \item Tanenbaum, A. S., \& Wetherall, D. J. (2011). \textit{Computer Networks} (5th ed.). Prentice Hall.
-    
-    \item Kurose, J. F., \& Ross, K. W. (2017). \textit{Computer Networking: A Top-Down Approach} (7th ed.). Pearson.
-    
-    \item Peterson, L. L., \& Davie, B. S. (2012). \textit{Computer Networks: A Systems Approach} (5th ed.). Morgan Kaufmann.
-    
-    \item Stevens, W. R., Fenner, B., \& Rudoff, A. M. (2004). \textit{UNIX Network Programming, Volume 1: The Sockets Networking API} (3rd ed.). Addison-Wesley.
-\end{enumerate}
 
 \end{document}
